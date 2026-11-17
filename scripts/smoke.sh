@@ -15,9 +15,16 @@ expect() { # expect <name> <expected-status> <curl args...>
   [ "$body" = "$want" ] && pass "$name ($body)" || fail "$name: got $body, want $want" "$(cat /tmp/smoke_body.$$)"
 }
 out() { cat /tmp/smoke_body.$$; }
+expect_upload() { # like expect, but multipart/form-data (no JSON content type)
+  name=$1 want=$2; shift 2
+  body=$(curl -sk -b "$JAR" -c "$JAR" -o /tmp/smoke_body.$$ -w '%{http_code}' "$@") || true
+  [ "$body" = "$want" ] && pass "$name ($body)" || fail "$name: got $body, want $want" "$(cat /tmp/smoke_body.$$)"
+}
 
 echo "Smoke test against $URL"
-expect "readyz" 200 "$URL/readyz"
+expect "readyz" 200 "$URL/api/v1/readyz"
+expect "docs" 200 "$URL/api/v1/docs"
+expect "unknown v1 route → 404" 404 "$URL/api/v1/nope"
 expect "register" 201 -X POST "$URL/api/v1/auth/register" -d "{\"email\":\"$EMAIL\",\"password\":\"password123\",\"lang\":\"uz\"}"
 grep -q access_token "$JAR" && grep -q refresh_token "$JAR" && pass "HttpOnly cookies set" || fail "cookies missing"
 expect "me" 200 "$URL/api/v1/me"
@@ -31,6 +38,8 @@ expect "breakeven" 200 -X POST "$URL/api/v1/calculator/breakeven" -d '{"initial_
 expect "validation error → 422" 422 -X POST "$URL/api/v1/calculator/calculate" -d '{"amount":-1,"annual_rate":24,"term_months":12,"method":"annuity"}'
 expect "history" 200 "$URL/api/v1/calculator/history?limit=10"
 [ "$(out | grep -o '"kind"' | wc -l)" -eq 3 ] && pass "3 calculations in history" || fail "history count" "$(out)"
+FIX=$(dirname "$0")/fixtures
+expect_upload "photo: non-image → 415" 415 -X POST "$URL/api/v1/photo" -F "file=@$0;type=image/png"
 expect "stats" 200 "$URL/api/v1/me/stats"
 out | grep -q '"large_loans_calculated":1' && pass "stats: 1 large loan" || fail "stats" "$(out)"
 
@@ -43,6 +52,9 @@ if [ "${SKIP_AI:-0}" != 1 ]; then
     pass "AI plan generated"
     out | grep -q '"name":"calculate_' && pass "LLM called deterministic calculators" || fail "no tool calls" "$(out)"
     expect "plans list" 200 "$URL/api/v1/advisor/plans?limit=10&offset=0"
+    expect_upload "photo: recognize invoice" 200 --max-time 200 -X POST "$URL/api/v1/photo" -F "file=@$FIX/invoice.png" -F lang=ru
+    out | grep -q '"document_type":"invoice"' && pass "photo: detected as invoice" || fail "photo type" "$(out)"
+    out | grep -q '14 000 000' && pass "photo: total amount transcribed" || fail "photo amount" "$(out)"
   elif [ "$code" = 503 ]; then
     printf '  \033[33m!\033[0m AI skipped: LLM not configured (set BASE_URL/AI_API_KEY)\n'
   else

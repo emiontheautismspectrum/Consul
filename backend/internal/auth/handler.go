@@ -19,10 +19,10 @@ func NewHandler(svc *Service, j *JWTIssuer, c CookieConfig) *Handler {
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/auth/register", h.register)
-	mux.HandleFunc("POST /api/v1/auth/login", h.login)
-	mux.HandleFunc("POST /api/v1/auth/refresh", h.refresh)
-	mux.HandleFunc("POST /api/v1/auth/logout", h.logout)
+	mux.HandleFunc("POST /auth/register", h.register)
+	mux.HandleFunc("POST /auth/login", h.login)
+	mux.HandleFunc("POST /auth/refresh", h.refresh)
+	mux.HandleFunc("POST /auth/logout", h.logout)
 }
 
 type credentials struct {

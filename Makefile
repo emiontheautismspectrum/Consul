@@ -11,7 +11,7 @@ export
 ## Local: one command to run everything (creates .env and a self-signed cert if missing)
 up: env certs
 	$(COMPOSE) up -d --build
-	@echo "API: https://localhost/api/docs  (self-signed certificate)"
+	@echo "API: https://localhost/api/v1/docs  (self-signed certificate)"
 
 down:
 	$(COMPOSE) down
@@ -64,6 +64,7 @@ deploy:
 	  ./init-env.sh $(DEPLOY_HOST) $(DOCKERHUB_USER); ./selfsigned.sh; \
 	  sed -i "s|^API_TAG=.*|API_TAG=$(DEPLOY_TAG)|" .env; \
 	  docker compose pull -q && docker compose up -d --remove-orphans && docker image prune -f >/dev/null; \
+	  docker compose exec -T nginx sh -c "/docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null && nginx -t -q && nginx -s reload"; \
 	  docker compose ps --format "table {{.Service}}\t{{.Status}}"'
 	@echo "deployed $(IMAGE):$(DEPLOY_TAG) → https://$(DEPLOY_HOST)"
 

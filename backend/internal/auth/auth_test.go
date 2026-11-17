@@ -154,7 +154,7 @@ func TestCookiesAreHardened(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Register(mux)
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/auth/register",
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/auth/register",
 		strings.NewReader(`{"email":"c@d.uz","password":"password1"}`)))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)

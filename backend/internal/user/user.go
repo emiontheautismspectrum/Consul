@@ -139,11 +139,11 @@ type Handler struct{ repo *Repo }
 func NewHandler(r *Repo) *Handler { return &Handler{repo: r} }
 
 func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
-	mux.Handle("GET /api/v1/me", reqAuth(http.HandlerFunc(h.me)))
-	mux.Handle("PATCH /api/v1/me", reqAuth(http.HandlerFunc(h.update)))
-	mux.Handle("POST /api/v1/me/consent", reqAuth(http.HandlerFunc(h.consent)))
-	mux.Handle("DELETE /api/v1/me/consent", reqAuth(http.HandlerFunc(h.withdraw)))
-	mux.Handle("GET /api/v1/me/stats", reqAuth(http.HandlerFunc(h.stats)))
+	mux.Handle("GET /me", reqAuth(http.HandlerFunc(h.me)))
+	mux.Handle("PATCH /me", reqAuth(http.HandlerFunc(h.update)))
+	mux.Handle("POST /me/consent", reqAuth(http.HandlerFunc(h.consent)))
+	mux.Handle("DELETE /me/consent", reqAuth(http.HandlerFunc(h.withdraw)))
+	mux.Handle("GET /me/stats", reqAuth(http.HandlerFunc(h.stats)))
 }
 
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {

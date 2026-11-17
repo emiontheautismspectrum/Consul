@@ -3,12 +3,14 @@ package auth
 import (
 	"net/http"
 	"time"
+
+	"finadvisor/internal/infrastructure/httpx"
 )
 
 const (
 	accessCookie  = "access_token"
 	refreshCookie = "refresh_token"
-	refreshPath   = "/api/v1/auth"
+	refreshPath   = httpx.APIv1 + "/auth"
 )
 
 type CookieConfig struct {

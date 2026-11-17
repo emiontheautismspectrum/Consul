@@ -8,21 +8,22 @@ info:
 
     **Auth**: `access_token` (15 min) and `refresh_token` (14 days) are set as
     `HttpOnly; Secure; SameSite=Strict` cookies. Browsers just send them (`credentials: "include"`).
-    On `401` call `POST /api/v1/auth/refresh` and retry. API tools may use `Authorization: Bearer <access_token>`.
+    On `401` call `POST /auth/refresh` and retry. API tools may use `Authorization: Bearer <access_token>`.
 
     **Errors** always look like `{"error": {"code": "...", "message": "..."}}`.
 
     Calculations are informational and are **not tax, legal or credit advice**.
-servers: [{url: /}]
+servers: [{url: /api/v1, description: API version 1 — all paths below are relative to it}]
 tags:
   - {name: auth}
   - {name: user}
   - {name: calculator}
   - {name: advisor}
+  - {name: vision, description: Document photo recognition (multimodal LLM)}
 security: [{cookieAuth: []}, {bearerAuth: []}]
 
 paths:
-  /api/v1/auth/register:
+  /auth/register:
     post:
       tags: [auth]
       security: []
@@ -31,7 +32,7 @@ paths:
         '201': {$ref: '#/components/responses/Auth'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
-  /api/v1/auth/login:
+  /auth/login:
     post:
       tags: [auth]
       security: []
@@ -40,7 +41,7 @@ paths:
         '200': {$ref: '#/components/responses/Auth'}
         '401': {$ref: '#/components/responses/Error'}
         '429': {description: Too many attempts (nginx rate limit)}
-  /api/v1/auth/refresh:
+  /auth/refresh:
     post:
       tags: [auth]
       security: []
@@ -48,14 +49,14 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/Auth'}
         '401': {$ref: '#/components/responses/Error'}
-  /api/v1/auth/logout:
+  /auth/logout:
     post:
       tags: [auth]
       security: []
       description: Blacklists the refresh token in Redis and clears both cookies.
       responses: {'204': {description: Logged out}}
 
-  /api/v1/me:
+  /me:
     get:
       tags: [user]
       responses:
@@ -65,7 +66,7 @@ paths:
       tags: [user]
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [lang], properties: {lang: {$ref: '#/components/schemas/Lang'}}}}}}
       responses: {'200': {description: Updated profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
-  /api/v1/me/consent:
+  /me/consent:
     post:
       tags: [user]
       description: Consent to personal data processing. Required before AI generation.
@@ -73,7 +74,7 @@ paths:
     delete:
       tags: [user]
       responses: {'200': {description: Consent withdrawn, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
-  /api/v1/me/stats:
+  /me/stats:
     get:
       tags: [user]
       description: Dashboard aggregates (JOIN + FILTER + LIMIT/OFFSET query).
@@ -94,7 +95,7 @@ paths:
                     type: array
                     items: {type: object, properties: {id: {type: string, format: uuid}, title: {type: string}, created_at: {type: string, format: date-time}}}
 
-  /api/v1/calculator/calculate:
+  /calculator/calculate:
     post:
       tags: [calculator]
       summary: Loan calculator (annuity / differentiated)
@@ -104,7 +105,7 @@ paths:
       responses:
         '200': {description: Result, content: {application/json: {schema: {$ref: '#/components/schemas/LoanEnvelope'}}}}
         '422': {$ref: '#/components/responses/Error'}
-  /api/v1/calculator/tax:
+  /calculator/tax:
     post:
       tags: [calculator]
       summary: Uzbekistan tax calculator (turnover vs general regime)
@@ -113,7 +114,7 @@ paths:
       responses:
         '200': {description: Result, content: {application/json: {schema: {$ref: '#/components/schemas/TaxEnvelope'}}}}
         '422': {$ref: '#/components/responses/Error'}
-  /api/v1/calculator/breakeven:
+  /calculator/breakeven:
     post:
       tags: [calculator]
       summary: Break-even, payback and ROI
@@ -122,13 +123,13 @@ paths:
       responses:
         '200': {description: Result, content: {application/json: {schema: {$ref: '#/components/schemas/BreakevenEnvelope'}}}}
         '422': {$ref: '#/components/responses/Error'}
-  /api/v1/calculator/rules:
+  /calculator/rules:
     get:
       tags: [calculator]
       summary: Current tax rates with legal references (lex.uz, soliq.uz)
       security: []
       responses: {'200': {description: Rules, content: {application/json: {schema: {type: object}}}}}
-  /api/v1/calculator/history:
+  /calculator/history:
     get:
       tags: [calculator]
       parameters:
@@ -149,12 +150,12 @@ paths:
                   limit: {type: integer}
                   offset: {type: integer}
 
-  /api/v1/advisor/generate:
+  /advisor/generate:
     post:
       tags: [advisor]
       summary: Generate a business plan (LLM + calculator tools)
       description: |
-        Requires consent (`POST /api/v1/me/consent`). Personal data in free text is masked before
+        Requires consent (`POST /me/consent`). Personal data in free text is masked before
         it is sent to the LLM. Takes 20–90 s. Daily per-user limit (Free tier).
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/GenerateInput'}}}}
       responses:
@@ -164,7 +165,7 @@ paths:
         '429': {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '502': {description: llm_error / llm_no_tools, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '503': {description: llm_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-  /api/v1/advisor/plans:
+  /advisor/plans:
     get:
       tags: [advisor]
       parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Offset'}]
@@ -180,7 +181,7 @@ paths:
                   total: {type: integer}
                   limit: {type: integer}
                   offset: {type: integer}
-  /api/v1/advisor/plans/{id}:
+  /advisor/plans/{id}:
     parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
     get:
       tags: [advisor]
@@ -190,6 +191,39 @@ paths:
     delete:
       tags: [advisor]
       responses: {'204': {description: Deleted}, '404': {$ref: '#/components/responses/Error'}}
+
+  /photo:
+    post:
+      tags: [vision]
+      summary: Recognize a photo of a document
+      description: |
+        Upload a photo or scan (JPEG, PNG or WebP, up to 10 MB). Returns the full transcription in the
+        original language plus key fields, document type and a short summary in `lang`.
+        Requires consent (`POST /me/consent`): documents contain personal data. The image is
+        processed in memory and never stored. Daily per-user limit. Usually takes 5–30 s.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary, description: "JPEG, PNG or WebP, max 10 MB"}
+                lang: {$ref: '#/components/schemas/Lang'}
+            encoding:
+              file: {contentType: 'image/jpeg, image/png, image/webp'}
+      responses:
+        '200': {description: Recognized document, content: {application/json: {schema: {$ref: '#/components/schemas/PhotoResult'}}}}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {description: consent_required, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '413': {description: too_large (over 10 MB), content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '415': {description: unsupported_media_type, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '422': {description: unreadable — the model could not read the image, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '429': {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '502': {description: llm_error, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '503': {description: llm_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
 
   /healthz:
     get: {tags: [user], security: [], summary: Liveness, responses: {'200': {description: ok}}}
@@ -350,6 +384,28 @@ components:
         fixed_costs_monthly: {type: number}
         employees: {type: integer}
         avg_salary: {type: number}
+    PhotoResult:
+      type: object
+      properties:
+        is_document: {type: boolean, description: false if the photo is not a document}
+        document_type:
+          type: string
+          enum: [invoice, receipt, contract, act, waybill, bank_statement, payment_order, tax_form, license, certificate, passport, id_card, power_of_attorney, price_list, letter, other]
+        title: {type: string, example: "Счёт-фактура № 147 от 12.11.2026"}
+        language: {type: string, description: language of the document itself, example: ru}
+        text: {type: string, description: full transcription in the original language}
+        fields:
+          type: array
+          items:
+            type: object
+            properties:
+              key: {type: string, example: total_amount}
+              label: {type: string, example: Итого к оплате}
+              value: {type: string, example: "14 000 000 сум"}
+        summary: {type: string}
+        warnings: {type: array, items: {type: string}}
+        model: {type: string, example: kimi-k3}
+        disclaimer: {type: string}
     Plan:
       type: object
       properties:

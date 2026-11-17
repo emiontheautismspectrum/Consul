@@ -27,12 +27,13 @@ type Config struct {
 
 	AllowedOrigins []string
 
-	AIBaseURL    string
-	AIAPIKey     string
-	AIModel      string
-	AIMaxTokens  int
-	AIDailyLimit int // generations per user per day
-	AITimeout    time.Duration
+	AIBaseURL     string
+	AIAPIKey      string
+	AIModel       string
+	AIVisionModel string // multimodal model for POST /api/v1/photo
+	AIMaxTokens   int
+	AIDailyLimit  int // generations per user per day
+	AITimeout     time.Duration
 }
 
 func Load() (Config, error) {
@@ -54,6 +55,7 @@ func Load() (Config, error) {
 		AIBaseURL:        strings.TrimRight(os.Getenv("BASE_URL"), "/"),
 		AIAPIKey:         os.Getenv("AI_API_KEY"),
 		AIModel:          env("AI_MODEL", "deepseek-chat"),
+		AIVisionModel:    env("AI_VISION_MODEL", "kimi-k3"),
 		AIMaxTokens:      envInt("AI_MAX_TOKENS", 16000), // reasoning models spend part of it on thinking
 		AIDailyLimit:     envInt("AI_DAILY_LIMIT", 20),
 		AITimeout:        envDuration("AI_TIMEOUT", 90*time.Second),

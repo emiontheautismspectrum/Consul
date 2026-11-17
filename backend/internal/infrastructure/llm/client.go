@@ -5,11 +5,13 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -19,6 +21,50 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+	// Parts, when set, replaces Content with multimodal content (text + images).
+	Parts []ContentPart `json:"-"`
+}
+
+// ContentPart is one element of a multimodal message (OpenAI vision format).
+type ContentPart struct {
+	Type     string    `json:"type"` // text | image_url
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+type ImageURL struct {
+	URL string `json:"url"` // https://… or data:<mime>;base64,<data>
+}
+
+func TextPart(t string) ContentPart { return ContentPart{Type: "text", Text: t} }
+
+// ImagePart embeds an image as a data URL.
+func ImagePart(mime string, data []byte) ContentPart {
+	return ContentPart{Type: "image_url", ImageURL: &ImageURL{URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)}}
+}
+
+func (m Message) MarshalJSON() ([]byte, error) {
+	type plain Message
+	if len(m.Parts) == 0 {
+		return json.Marshal(plain(m))
+	}
+	return json.Marshal(struct {
+		plain
+		Content []ContentPart `json:"content"`
+	}{plain(m), m.Parts})
+}
+
+// ExtractJSON strips markdown fences and surrounding prose around a JSON object in a model
+// reply; some models wrap JSON in ```json even in JSON mode.
+func ExtractJSON(content string) string {
+	c := strings.TrimSpace(content)
+	c = strings.TrimPrefix(c, "```json")
+	c = strings.TrimPrefix(c, "```")
+	c = strings.TrimSuffix(c, "```")
+	if i, j := strings.Index(c, "{"), strings.LastIndex(c, "}"); i >= 0 && j > i {
+		c = c[i : j+1]
+	}
+	return c
 }
 
 type ToolCall struct {
@@ -47,10 +93,11 @@ type Usage struct {
 }
 
 type Request struct {
-	Messages  []Message
-	Tools     []Tool
-	JSONMode  bool
-	MaxTokens int
+	Messages    []Message
+	Tools       []Tool
+	JSONMode    bool
+	MaxTokens   int
+	Temperature *float64 // nil = client default (0.3)
 }
 
 // Client is the interface the advisor depends on; tests use a scripted fake.
@@ -112,6 +159,9 @@ func (c *HTTPClient) Chat(ctx context.Context, req Request) (Message, Usage, err
 	}
 	body := apiRequest{Model: c.model, Messages: req.Messages, Tools: req.Tools,
 		MaxTokens: req.MaxTokens, Temperature: 0.3}
+	if req.Temperature != nil {
+		body.Temperature = *req.Temperature
+	}
 	if len(req.Tools) > 0 {
 		body.ToolChoice = "auto"
 	}

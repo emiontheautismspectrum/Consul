@@ -22,13 +22,14 @@ import (
 	"finadvisor/internal/infrastructure/httpx"
 	"finadvisor/internal/infrastructure/llm"
 	"finadvisor/internal/user"
+	"finadvisor/internal/vision"
 	"finadvisor/migrations"
 )
 
 func main() {
 	// Distroless images have no curl, so the binary doubles as its own healthcheck probe.
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
-		resp, err := http.Get("http://127.0.0.1" + envOr("APP_ADDR", ":8080") + "/healthz")
+		resp, err := http.Get("http://127.0.0.1" + envOr("APP_ADDR", ":8080") + httpx.APIv1 + "/healthz")
 		if err != nil || resp.StatusCode != http.StatusOK {
 			os.Exit(1)
 		}
@@ -86,21 +87,27 @@ func run() error {
 	agent := advisor.NewAgent(llmClient, engine, cfg.AIMaxTokens)
 	advisorSvc := advisor.NewService(agent, cfg.AIModel, advisor.NewPGRepo(database), userRepo, rdb, cfg.AIDailyLimit)
 	advisorH := advisor.NewHandler(advisorSvc)
+	// Vision: same gateway, multimodal model; reuses consent and rate limiting.
+	visionClient := llm.NewHTTPClient(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIVisionModel, cfg.AITimeout)
+	visionH := vision.NewHandler(vision.NewService(visionClient, userRepo, rdb))
 	if cfg.AIBaseURL == "" || cfg.AIAPIKey == "" {
 		slog.Warn("BASE_URL / AI_API_KEY not set: /advisor/generate will return 503")
 	}
 
-	mux := http.NewServeMux()
-	authH.Register(mux)
-	calcH.Register(mux, authH.OptionalAuth, authH.RequireAuth)
-	userH.Register(mux, authH.RequireAuth)
-	advisorH.Register(mux, authH.RequireAuth)
-	api.Register(mux)
+	// All routes live under /api/v1: modules register relative paths on v1, which is
+	// mounted once. A future v2 is another mux mounted next to it.
+	v1 := http.NewServeMux()
+	authH.Register(v1)
+	calcH.Register(v1, authH.OptionalAuth, authH.RequireAuth)
+	userH.Register(v1, authH.RequireAuth)
+	advisorH.Register(v1, authH.RequireAuth)
+	visionH.Register(v1, authH.RequireAuth)
+	api.Register(v1)
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	v1.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+	v1.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		c, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		if err := database.PingContext(c); err != nil {
@@ -113,19 +120,24 @@ func run() error {
 		}
 		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+	notFound := func(w http.ResponseWriter, _ *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "not_found", "route not found")
-	})
+	}
+	v1.HandleFunc("/", notFound)
+
+	mux := http.NewServeMux()
+	httpx.Mount(mux, httpx.APIv1, v1)
+	mux.HandleFunc("/", notFound)
 
 	handler := httpx.Chain(mux,
 		httpx.WithRequestID, httpx.Recover, httpx.Logger,
-		httpx.CORS(cfg.AllowedOrigins), httpx.BodyLimit(1<<20))
+		httpx.CORS(cfg.AllowedOrigins), httpx.BodyLimit(1<<20, httpx.APIv1+vision.Route))
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
+		ReadTimeout:       60 * time.Second,                 // photo uploads (nginx buffers them, this is a safety net)
 		WriteTimeout:      cfg.AITimeout*3 + 30*time.Second, // AI generation makes several LLM round trips
 		IdleTimeout:       60 * time.Second,
 	}

@@ -122,15 +122,8 @@ func (a *Agent) finish(res AgentResult, s *Structured, lang string) AgentResult 
 }
 
 func parseStructured(content string) (*Structured, bool) {
-	c := strings.TrimSpace(content)
-	c = strings.TrimPrefix(c, "```json")
-	c = strings.TrimPrefix(c, "```")
-	c = strings.TrimSuffix(c, "```")
-	if i, j := strings.Index(c, "{"), strings.LastIndex(c, "}"); i >= 0 && j > i {
-		c = c[i : j+1]
-	}
 	var s Structured
-	if err := json.Unmarshal([]byte(c), &s); err != nil || s.Title == "" || len(s.Sections) == 0 {
+	if err := json.Unmarshal([]byte(llm.ExtractJSON(content)), &s); err != nil || s.Title == "" || len(s.Sections) == 0 {
 		return nil, false
 	}
 	return &s, true

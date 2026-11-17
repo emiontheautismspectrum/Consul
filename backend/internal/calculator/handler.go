@@ -23,11 +23,11 @@ func NewHandler(e Engine, r Repo) *Handler { return &Handler{engine: e, repo: r}
 // Register mounts calculator routes. optAuth attaches the user (history is saved only for
 // logged-in users); reqAuth guards the history endpoint.
 func (h *Handler) Register(mux *http.ServeMux, optAuth, reqAuth httpx.Middleware) {
-	mux.Handle("POST /api/v1/calculator/calculate", optAuth(http.HandlerFunc(h.loan)))
-	mux.Handle("POST /api/v1/calculator/tax", optAuth(http.HandlerFunc(h.tax)))
-	mux.Handle("POST /api/v1/calculator/breakeven", optAuth(http.HandlerFunc(h.breakeven)))
-	mux.HandleFunc("GET /api/v1/calculator/rules", h.rules)
-	mux.Handle("GET /api/v1/calculator/history", reqAuth(http.HandlerFunc(h.history)))
+	mux.Handle("POST /calculator/calculate", optAuth(http.HandlerFunc(h.loan)))
+	mux.Handle("POST /calculator/tax", optAuth(http.HandlerFunc(h.tax)))
+	mux.Handle("POST /calculator/breakeven", optAuth(http.HandlerFunc(h.breakeven)))
+	mux.HandleFunc("GET /calculator/rules", h.rules)
+	mux.Handle("GET /calculator/history", reqAuth(http.HandlerFunc(h.history)))
 }
 
 type envelope struct {

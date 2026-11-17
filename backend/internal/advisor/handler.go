@@ -17,10 +17,10 @@ type Handler struct{ svc *Service }
 func NewHandler(s *Service) *Handler { return &Handler{svc: s} }
 
 func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
-	mux.Handle("POST /api/v1/advisor/generate", reqAuth(http.HandlerFunc(h.generate)))
-	mux.Handle("GET /api/v1/advisor/plans", reqAuth(http.HandlerFunc(h.list)))
-	mux.Handle("GET /api/v1/advisor/plans/{id}", reqAuth(http.HandlerFunc(h.get)))
-	mux.Handle("DELETE /api/v1/advisor/plans/{id}", reqAuth(http.HandlerFunc(h.delete)))
+	mux.Handle("POST /advisor/generate", reqAuth(http.HandlerFunc(h.generate)))
+	mux.Handle("GET /advisor/plans", reqAuth(http.HandlerFunc(h.list)))
+	mux.Handle("GET /advisor/plans/{id}", reqAuth(http.HandlerFunc(h.get)))
+	mux.Handle("DELETE /advisor/plans/{id}", reqAuth(http.HandlerFunc(h.delete)))
 }
 
 type planResponse struct {

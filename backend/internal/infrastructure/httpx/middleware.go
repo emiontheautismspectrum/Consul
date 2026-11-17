@@ -20,6 +20,16 @@ const (
 
 type Middleware func(http.Handler) http.Handler
 
+// APIv1 is the URL prefix of API version 1. Modules register routes relative to it
+// ("POST /auth/login") and the version is mounted once in main, so a v2 can live
+// alongside without touching the modules.
+const APIv1 = "/api/v1"
+
+// Mount serves sub under prefix (e.g. "/api/v1"), stripping the prefix for sub's patterns.
+func Mount(mux *http.ServeMux, prefix string, sub http.Handler) {
+	mux.Handle(prefix+"/", http.StripPrefix(prefix, sub))
+}
+
 func Chain(h http.Handler, mw ...Middleware) http.Handler {
 	for i := len(mw) - 1; i >= 0; i-- {
 		h = mw[i](h)
@@ -100,10 +110,14 @@ func CORS(origins []string) Middleware {
 	}
 }
 
-func BodyLimit(n int64) Middleware {
+// BodyLimit caps request bodies at n bytes. Paths in skip (e.g. file uploads) enforce
+// their own, larger limit.
+func BodyLimit(n int64, skip ...string) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, n)
+			if !slices.Contains(skip, r.URL.Path) {
+				r.Body = http.MaxBytesReader(w, r.Body, n)
+			}
 			next.ServeHTTP(w, r)
 		})
 	}
