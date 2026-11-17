@@ -1,0 +1,14 @@
+[Unit]
+Description=Host firewall and rate limits (nftables table inet host_fw)
+Wants=network-pre.target
+Before=network-pre.target docker.service fail2ban.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables/host-firewall.nft
+ExecReload=/usr/sbin/nft -f /etc/nftables/host-firewall.nft
+ExecStop=/usr/sbin/nft delete table inet host_fw
+
+[Install]
+WantedBy=multi-user.target

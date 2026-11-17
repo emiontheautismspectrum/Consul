@@ -124,19 +124,28 @@ CI (`.github/workflows/ci.yml`): `gofmt`, `go vet`, `go test -race`, затем 
 
 ## Деплой на VPS
 
+На сервере лежат **только конфиги**: `docker-compose.yml`, шаблон nginx, `.env` и скрипты. Код и образы туда не копируются. Образ API публикуется на Docker Hub (`xsenos/finadvisor-api`), Postgres, Redis, PgBouncer и nginx — официальные образы.
+
 ```bash
-# на сервере (Docker установлен, A-запись домена указывает на сервер)
-git clone <repo> /opt/finadvisor && cd /opt/finadvisor
-make env                      # затем в .env: DOMAIN, LETSENCRYPT_EMAIL, BASE_URL, AI_API_KEY,
-                              # ALLOWED_ORIGINS=https://<домен>
-make cert-init                # первый выпуск сертификата Let's Encrypt
-make prod-up                  # стек + certbot (автопродление) + перезагрузка nginx раз в 12 ч
-make smoke URL=https://<домен>
+make publish        # lint + тесты → buildx (linux/amd64) → push :<дата-sha> и :latest
+make deploy         # конфиги → /home/rocky/finadvisor, затем docker compose pull && up -d
+make deploy API_TAG=20261117-1922-30d2558   # откат на конкретную версию
+make vps-ps / make vps-logs
 ```
 
-Обновление с машины разработчика: укажите в `.env` `DEPLOY_HOST`, `DEPLOY_USER` и `DEPLOY_PATH`, затем `make deploy` (rsync + `make prod-up` по SSH).
+При первом `make deploy` на сервере создаётся `.env` со случайными секретами (`deploy/vps/init-env.sh`) и self-signed сертификат для IP. Ключи LLM вписываются в `/home/rocky/finadvisor/.env` прямо на сервере. Когда появится домен, нужно указать `DOMAIN` и `LETSENCRYPT_EMAIL` в `.env` на сервере и запустить `./letsencrypt.sh`.
 
-Фронтенд подключается так: соберите образ Next.js, укажите его в `WEB_IMAGE` и запустите `docker compose --profile web up -d`. Nginx уже проксирует `/` на `web:3000`.
+**Сервер:** Rocky Linux 10, 2 vCPU / 16 GB / 10 GB SSD. Под ресурсы настроено:
+- лимиты памяти на каждый сервис, Postgres с `shared_buffers=2GB` и `max_wal_size=512MB`, Redis до 512 MB;
+- ротация логов Docker; nginx пишет в journald, размер журнала ограничен 300 MB.
+
+**Hardening хоста** (`deploy/vps/host/`, применяется командой `make vps-host` с автооткатом файрвола через 3 минуты):
+- SSH только по ключу, root запрещён, `MaxAuthTries 3`.
+- nftables (`table inet host_fw`): на входе всё запрещено, кроме 22/80/443, ICMP и DHCP. Rate-limit на 22 — 6 новых соединений в минуту с IP. На 80/443 — 30 новых соединений в секунду и не больше 100 одновременных с IP; это правило стоит в prerouting, до DNAT Docker.
+- fail2ban: jail `sshd` и jail `nginx-limit-req` (свой фильтр `finadvisor-nginx-limit` читает journald контейнера nginx). Второй банит IP, которые упираются в лимиты nginx. Бан ставится в prerouting, потому что опубликованные порты Docker обходят цепочку INPUT.
+- Docker работает с `firewall-backend: nftables`: в облачном ядре нет модулей `xt_*` для iptables.
+
+**Фронтенд:** фронтендер публикует образ Next.js на Docker Hub. На сервере в `.env` указывается `WEB_IMAGE=<user>/finadvisor-web:<tag>`, затем выполняется `docker compose --profile web up -d web`. Nginx уже отдаёт `/` на `web:3000`.
 
 ## Переменные окружения
 

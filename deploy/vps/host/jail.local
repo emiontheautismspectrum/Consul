@@ -1,0 +1,28 @@
+# fail2ban jails for the FinAdvisor VPS (installed to /etc/fail2ban/jail.local)
+[DEFAULT]
+banaction          = nftables-multiport
+banaction_allports = nftables-allports
+bantime            = 1h
+bantime.increment  = true      # repeat offenders: 1h → 2h → 4h … up to a week
+bantime.maxtime    = 1w
+findtime           = 10m
+maxretry           = 5
+# localhost, Docker bridges (never ban the gateway = everyone), the VPC subnet
+ignoreip           = 127.0.0.1/8 ::1 172.16.0.0/12 10.128.0.0/24
+
+[sshd]
+enabled  = true
+backend  = systemd
+maxretry = 3
+
+# IPs that keep hitting nginx rate limits (limit_req) get dropped for everyone.
+# Docker-published ports bypass the INPUT hook (DNAT → FORWARD), so the ban lives in
+# PREROUTING, before Docker's NAT; reject is not allowed there, hence drop.
+[nginx-limit-req]
+enabled      = true
+filter       = finadvisor-nginx-limit
+backend      = systemd
+port         = http,https
+findtime  = 1m
+maxretry  = 20
+banaction = nftables-allports[table=f2b-docker, chain=f2b-web, chain_hook=prerouting, chain_priority=-160, blocktype=drop]

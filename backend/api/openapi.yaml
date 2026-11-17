@@ -1,0 +1,383 @@
+openapi: 3.0.3
+info:
+  title: FinAdvisor AI API
+  version: 1.0.0
+  description: |
+    AI financial advisor for SMEs in Uzbekistan. The LLM never calculates numbers itself:
+    it calls the deterministic calculators below through tool calling.
+
+    **Auth**: `access_token` (15 min) and `refresh_token` (14 days) are set as
+    `HttpOnly; Secure; SameSite=Strict` cookies. Browsers just send them (`credentials: "include"`).
+    On `401` call `POST /api/v1/auth/refresh` and retry. API tools may use `Authorization: Bearer <access_token>`.
+
+    **Errors** always look like `{"error": {"code": "...", "message": "..."}}`.
+
+    Calculations are informational and are **not tax, legal or credit advice**.
+servers: [{url: /}]
+tags:
+  - {name: auth}
+  - {name: user}
+  - {name: calculator}
+  - {name: advisor}
+security: [{cookieAuth: []}, {bearerAuth: []}]
+
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      security: []
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Credentials'}}}}
+      responses:
+        '201': {$ref: '#/components/responses/Auth'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      security: []
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Credentials'}}}}
+      responses:
+        '200': {$ref: '#/components/responses/Auth'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {description: Too many attempts (nginx rate limit)}
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      security: []
+      description: Uses the `refresh_token` cookie. The old refresh token is revoked (rotation); reusing it returns 401.
+      responses:
+        '200': {$ref: '#/components/responses/Auth'}
+        '401': {$ref: '#/components/responses/Error'}
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      security: []
+      description: Blacklists the refresh token in Redis and clears both cookies.
+      responses: {'204': {description: Logged out}}
+
+  /api/v1/me:
+    get:
+      tags: [user]
+      responses:
+        '200': {description: Profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [user]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [lang], properties: {lang: {$ref: '#/components/schemas/Lang'}}}}}}
+      responses: {'200': {description: Updated profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
+  /api/v1/me/consent:
+    post:
+      tags: [user]
+      description: Consent to personal data processing. Required before AI generation.
+      responses: {'200': {description: Profile with consent_at set, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
+    delete:
+      tags: [user]
+      responses: {'200': {description: Consent withdrawn, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
+  /api/v1/me/stats:
+    get:
+      tags: [user]
+      description: Dashboard aggregates (JOIN + FILTER + LIMIT/OFFSET query).
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Offset'}]
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email: {type: string}
+                  total_plans: {type: integer}
+                  total_calculations: {type: integer}
+                  large_loans_calculated: {type: integer, description: Loans above 1 000 000 UZS}
+                  recent_plans:
+                    type: array
+                    items: {type: object, properties: {id: {type: string, format: uuid}, title: {type: string}, created_at: {type: string, format: date-time}}}
+
+  /api/v1/calculator/calculate:
+    post:
+      tags: [calculator]
+      summary: Loan calculator (annuity / differentiated)
+      security: [{}, {cookieAuth: []}]
+      description: Public. If the user is logged in, the calculation is saved to history.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoanInput'}}}}
+      responses:
+        '200': {description: Result, content: {application/json: {schema: {$ref: '#/components/schemas/LoanEnvelope'}}}}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/calculator/tax:
+    post:
+      tags: [calculator]
+      summary: Uzbekistan tax calculator (turnover vs general regime)
+      security: [{}, {cookieAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaxInput'}}}}
+      responses:
+        '200': {description: Result, content: {application/json: {schema: {$ref: '#/components/schemas/TaxEnvelope'}}}}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/calculator/breakeven:
+    post:
+      tags: [calculator]
+      summary: Break-even, payback and ROI
+      security: [{}, {cookieAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/BreakevenInput'}}}}
+      responses:
+        '200': {description: Result, content: {application/json: {schema: {$ref: '#/components/schemas/BreakevenEnvelope'}}}}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/calculator/rules:
+    get:
+      tags: [calculator]
+      summary: Current tax rates with legal references (lex.uz, soliq.uz)
+      security: []
+      responses: {'200': {description: Rules, content: {application/json: {schema: {type: object}}}}}
+  /api/v1/calculator/history:
+    get:
+      tags: [calculator]
+      parameters:
+        - {name: kind, in: query, schema: {type: string, enum: [loan, tax, breakeven]}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: History, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: {type: object, properties: {id: {type: string}, kind: {type: string}, input: {type: object}, result: {type: object}, created_at: {type: string, format: date-time}}}
+                  limit: {type: integer}
+                  offset: {type: integer}
+
+  /api/v1/advisor/generate:
+    post:
+      tags: [advisor]
+      summary: Generate a business plan (LLM + calculator tools)
+      description: |
+        Requires consent (`POST /api/v1/me/consent`). Personal data in free text is masked before
+        it is sent to the LLM. Takes 20–90 s. Daily per-user limit (Free tier).
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/GenerateInput'}}}}
+      responses:
+        '201': {description: Plan, content: {application/json: {schema: {$ref: '#/components/schemas/Plan'}}}}
+        '403': {description: consent_required, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '502': {description: llm_error / llm_no_tools, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '503': {description: llm_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /api/v1/advisor/plans:
+    get:
+      tags: [advisor]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Offset'}]
+      responses:
+        '200':
+          description: Plan headers, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {type: object, properties: {id: {type: string}, title: {type: string}, lang: {type: string}, created_at: {type: string, format: date-time}}}}
+                  total: {type: integer}
+                  limit: {type: integer}
+                  offset: {type: integer}
+  /api/v1/advisor/plans/{id}:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [advisor]
+      responses:
+        '200': {description: Plan, content: {application/json: {schema: {$ref: '#/components/schemas/Plan'}}}}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [advisor]
+      responses: {'204': {description: Deleted}, '404': {$ref: '#/components/responses/Error'}}
+
+  /healthz:
+    get: {tags: [user], security: [], summary: Liveness, responses: {'200': {description: ok}}}
+  /readyz:
+    get: {tags: [user], security: [], summary: Readiness (DB + Redis), responses: {'200': {description: ready}, '503': {description: not ready}}}
+
+components:
+  securitySchemes:
+    cookieAuth: {type: apiKey, in: cookie, name: access_token}
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    Limit: {name: limit, in: query, schema: {type: integer, default: 10, maximum: 100}}
+    Offset: {name: offset, in: query, schema: {type: integer, default: 0}}
+  responses:
+    Error: {description: Error, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Auth:
+      description: Tokens set as HttpOnly cookies
+      headers: {Set-Cookie: {schema: {type: string}, description: access_token and refresh_token}}
+      content:
+        application/json:
+          schema: {type: object, properties: {user_id: {type: string, format: uuid}, access_token: {type: string}, expires_in: {type: integer, example: 900}}}
+  schemas:
+    Error:
+      type: object
+      properties: {error: {type: object, properties: {code: {type: string}, message: {type: string}}}}
+    Lang: {type: string, enum: [uz, ru, en]}
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, minLength: 8, maxLength: 128}
+        lang: {$ref: '#/components/schemas/Lang'}
+    Profile:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string}
+        lang: {$ref: '#/components/schemas/Lang'}
+        consent_at: {type: string, format: date-time, nullable: true}
+        consent_version: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+    Source: {type: object, properties: {title: {type: string}, url: {type: string}}}
+    EnvelopeBase:
+      type: object
+      properties:
+        sources: {type: array, items: {$ref: '#/components/schemas/Source'}}
+        disclaimer: {type: string}
+
+    LoanInput:
+      type: object
+      required: [amount, annual_rate, term_months]
+      properties:
+        amount: {type: number, example: 100000000, description: UZS}
+        annual_rate: {type: number, example: 24, description: percent per year}
+        term_months: {type: integer, example: 12}
+        method: {type: string, enum: [annuity, differentiated], default: annuity}
+        grace_months: {type: integer, default: 0, description: interest-only months}
+    LoanEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            result:
+              type: object
+              properties:
+                monthly_payment: {type: number, example: 9455959.66}
+                first_payment: {type: number}
+                last_payment: {type: number}
+                total_paid: {type: number}
+                total_interest: {type: number}
+                overpayment_pct: {type: number}
+                schedule:
+                  type: array
+                  items: {type: object, properties: {month: {type: integer}, payment: {type: number}, principal: {type: number}, interest: {type: number}, balance: {type: number}}}
+
+    TaxInput:
+      type: object
+      required: [annual_revenue]
+      properties:
+        entity_type: {type: string, enum: [llc, ie], default: llc, description: "llc = MChJ/OOO, ie = YaTT/ИП"}
+        regime: {type: string, enum: [auto, turnover, general], default: auto}
+        annual_revenue: {type: number, example: 600000000, description: UZS excluding VAT}
+        annual_expenses: {type: number, example: 300000000}
+        vatable_purchases: {type: number}
+        annual_payroll: {type: number, example: 120000000}
+        employees: {type: integer}
+    RegimeResult:
+      type: object
+      properties:
+        regime: {type: string}
+        lines:
+          type: array
+          items: {type: object, properties: {code: {type: string}, name: {type: string}, base: {type: number}, rate_pct: {type: number}, amount: {type: number}, article: {type: string}, note: {type: string}}}
+        total_tax: {type: number}
+        withheld_pit: {type: number}
+        net_profit: {type: number}
+        effective_rate_pct: {type: number}
+    TaxEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            result:
+              type: object
+              properties:
+                rules_version: {type: string}
+                selected: {$ref: '#/components/schemas/RegimeResult'}
+                alternative: {$ref: '#/components/schemas/RegimeResult'}
+                recommended: {type: string, description: regime with the higher net profit}
+                warnings: {type: array, items: {type: string}}
+
+    BreakevenInput:
+      type: object
+      required: [price_per_unit, variable_cost_per_unit, fixed_costs_monthly]
+      properties:
+        initial_investment: {type: number, example: 60000000}
+        fixed_costs_monthly: {type: number, example: 30000000}
+        price_per_unit: {type: number, example: 25000}
+        variable_cost_per_unit: {type: number, example: 10000}
+        expected_units_monthly: {type: number, example: 3000}
+        loan_payment_monthly: {type: number}
+        revenue_tax_pct: {type: number, description: e.g. turnover tax 4}
+    BreakevenEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            result:
+              type: object
+              properties:
+                contribution_per_unit: {type: number}
+                contribution_margin_pct: {type: number}
+                breakeven_units_monthly: {type: number}
+                breakeven_revenue_monthly: {type: number}
+                monthly_profit: {type: number, nullable: true}
+                margin_of_safety_pct: {type: number, nullable: true}
+                payback_months: {type: integer, nullable: true}
+                roi_12m_pct: {type: number, nullable: true}
+                cashflow_24m: {type: array, items: {type: object, properties: {month: {type: integer}, profit: {type: number}, cumulative: {type: number}}}}
+                warnings: {type: array, items: {type: string}}
+
+    GenerateInput:
+      type: object
+      required: [niche, budget]
+      properties:
+        lang: {$ref: '#/components/schemas/Lang'}
+        niche: {type: string, example: Kofe nuqtasi, maxLength: 200}
+        description: {type: string, maxLength: 2000}
+        region: {type: string, example: Toshkent}
+        entity_type: {type: string, enum: [llc, ie]}
+        budget: {type: number, example: 150000000}
+        own_funds: {type: number}
+        loan: {$ref: '#/components/schemas/LoanInput'}
+        price_per_unit: {type: number}
+        variable_cost_per_unit: {type: number}
+        expected_units_monthly: {type: number}
+        fixed_costs_monthly: {type: number}
+        employees: {type: integer}
+        avg_salary: {type: number}
+    Plan:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        input: {type: object, description: anonymized wizard input}
+        content: {type: string, description: Markdown plan}
+        structured:
+          type: object
+          nullable: true
+          properties:
+            title: {type: string}
+            summary: {type: string}
+            sections: {type: array, items: {type: object, properties: {key: {type: string, enum: [market, costs, financing, taxes, breakeven]}, heading: {type: string}, body: {type: string}}}}
+            key_numbers:
+              type: array
+              items: {type: object, properties: {label: {type: string}, value: {type: number}, unit: {type: string}, tool: {type: string}, verified: {type: boolean, description: value matches a calculator result}}}
+            assumptions: {type: array, items: {type: string}}
+            risks: {type: array, items: {type: string}}
+            next_steps: {type: array, items: {type: string}}
+        tool_calls:
+          type: array
+          description: Trace of calculator calls made by the LLM
+          items: {type: object, properties: {name: {type: string}, arguments: {type: object}, result: {type: object}, error: {type: string}}}
+        lang: {$ref: '#/components/schemas/Lang'}
+        model: {type: string}
+        tokens_in: {type: integer}
+        tokens_out: {type: integer}
+        created_at: {type: string, format: date-time}
+        disclaimer: {type: string}
+        sources: {type: array, items: {$ref: '#/components/schemas/Source'}}

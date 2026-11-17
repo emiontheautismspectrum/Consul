@@ -1,0 +1,145 @@
+# Production stack for the VPS. Only config files live on the server; every service runs
+# from a published image (our API from Docker Hub, the rest are official images).
+#   docker compose pull && docker compose up -d
+#
+# Sized for 2 vCPU / 16 GB RAM / 10 GB SSD: memory limits per service, small WAL,
+# capped Redis memory, log rotation (also set globally in /etc/docker/daemon.json).
+name: finadvisor
+
+x-common: &common
+  restart: always
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  postgres:
+    <<: *common
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=60          # PgBouncer keeps the real pool at 20
+      - -c
+      - max_wal_size=512MB          # small disk
+      - -c
+      - min_wal_size=80MB
+      - -c
+      - wal_compression=on
+      - -c
+      - random_page_cost=1.1        # SSD
+    shm_size: 2gb
+    volumes: [pgdata:/var/lib/postgresql/data]
+    mem_limit: 5g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  pgbouncer:
+    <<: *common
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 20
+      LISTEN_PORT: 6432
+    mem_limit: 128m
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  redis:
+    <<: *common
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "512mb", "--maxmemory-policy", "volatile-lru"]
+    volumes: [redisdata:/data]
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    <<: *common
+    image: ${DOCKERHUB_USER}/finadvisor-api:${API_TAG:-latest}
+    env_file: .env
+    environment:
+      APP_ENV: prod
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?sslmode=disable
+      MIGRATE_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_ADDR: redis:6379
+    mem_limit: 1g
+    depends_on:
+      pgbouncer: {condition: service_started}
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # Next.js frontend, published to Docker Hub by the frontend developer.
+  # Enable with: docker compose --profile web up -d
+  web:
+    <<: *common
+    image: ${WEB_IMAGE:-finadvisor-web:latest}
+    profiles: [web]
+    environment:
+      API_INTERNAL_URL: http://api:8080
+    mem_limit: 1g
+
+  nginx:
+    <<: *common
+    image: nginx:1.27-alpine
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+      SSL_CERT: ${SSL_CERT:-/etc/nginx/certs/fullchain.pem}
+      SSL_KEY: ${SSL_KEY:-/etc/nginx/certs/privkey.pem}
+      NGINX_ENVSUBST_FILTER: "^(DOMAIN|SSL_)"
+    # Reload every 12h so renewed Let's Encrypt certificates are picked up.
+    command: ["/bin/sh", "-c", "/docker-entrypoint.sh nginx -g 'daemon off;' & while :; do sleep 12h; nginx -s reload; done"]
+    volumes:
+      # :Z — SELinux (Rocky Linux, enforcing) relabels the bind mounts for the container
+      - ./nginx/templates:/etc/nginx/templates:ro,Z
+      - ./nginx/certs:/etc/nginx/certs:ro,Z
+      - certbot-www:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    mem_limit: 256m
+    # journald instead of json-file: fail2ban on the host reads nginx rate-limit errors
+    # from the journal (no log files inside the home dir, SELinux stays enforcing).
+    logging:
+      driver: journald
+      options: {tag: finadvisor-nginx}
+    depends_on:
+      api: {condition: service_healthy}
+
+  # Only after a domain is attached: docker compose --profile letsencrypt up -d certbot
+  certbot:
+    <<: *common
+    image: certbot/certbot:latest
+    profiles: [letsencrypt]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+
+volumes:
+  pgdata:
+  redisdata:
+  certbot-www:
+  letsencrypt:
