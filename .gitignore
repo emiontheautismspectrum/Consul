@@ -1,0 +1,5 @@
+.env
+deploy/nginx/certs/
+*.pem
+/backend/api
+.idea/
