@@ -40,7 +40,8 @@ When you have all tool results, reply with ONLY a JSON object (no markdown fence
   "risks": ["..."],
   "next_steps": ["concrete actions: documents, bank, registration on my.soliq.uz, etc."]
 }
-Every value in key_numbers must be copied exactly from a tool result.`, langNames[lang])
+Every value in key_numbers must be copied exactly from a tool result.
+Be concise: each section body at most 120 words, at most 8 key_numbers, at most 5 items per list.`, langNames[lang])
 }
 
 const forceToolsMsg = "You have not used any calculators. Call the tools now — numbers must come from calculate_tax, calculate_loan and calculate_breakeven."

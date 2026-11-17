@@ -54,7 +54,7 @@ func Load() (Config, error) {
 		AIBaseURL:        strings.TrimRight(os.Getenv("BASE_URL"), "/"),
 		AIAPIKey:         os.Getenv("AI_API_KEY"),
 		AIModel:          env("AI_MODEL", "deepseek-chat"),
-		AIMaxTokens:      envInt("AI_MAX_TOKENS", 4000),
+		AIMaxTokens:      envInt("AI_MAX_TOKENS", 16000), // reasoning models spend part of it on thinking
 		AIDailyLimit:     envInt("AI_DAILY_LIMIT", 20),
 		AITimeout:        envDuration("AI_TIMEOUT", 90*time.Second),
 	}

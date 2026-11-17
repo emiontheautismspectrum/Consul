@@ -2,6 +2,7 @@ package advisor
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -49,8 +50,10 @@ func (h *Handler) generate(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, llm.ErrNotConfigured):
 		httpx.Error(w, http.StatusServiceUnavailable, "llm_unavailable", err.Error())
 	case errors.Is(err, ErrNoToolUse):
+		slog.WarnContext(r.Context(), "llm did not use tools", "request_id", httpx.RequestID(r.Context()))
 		httpx.Error(w, http.StatusBadGateway, "llm_no_tools", "the model did not use calculators; please retry")
 	case errors.Is(err, llm.ErrUpstream):
+		slog.ErrorContext(r.Context(), "llm upstream", "err", err, "request_id", httpx.RequestID(r.Context()))
 		httpx.Error(w, http.StatusBadGateway, "llm_error", "AI provider error, please retry")
 	case err != nil:
 		httpx.InternalError(w, r, err)
