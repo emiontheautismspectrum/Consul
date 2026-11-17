@@ -133,7 +133,7 @@ make deploy API_TAG=20261117-1922-30d2558   # откат на конкретну
 make vps-ps / make vps-logs
 ```
 
-При первом `make deploy` на сервере создаётся `.env` со случайными секретами (`deploy/vps/init-env.sh`) и self-signed сертификат для IP. Ключи LLM вписываются в `/home/rocky/finadvisor/.env` прямо на сервере. Когда появится домен, нужно указать `DOMAIN` и `LETSENCRYPT_EMAIL` в `.env` на сервере и запустить `./letsencrypt.sh`.
+При первом `make deploy` на сервере создаётся `.env` со случайными секретами (`deploy/vps/init-env.sh`) и self-signed сертификат для IP. Ключи LLM вписываются в `/home/rocky/finadvisor/.env` прямо на сервере. Сертификат Let's Encrypt выпускается скриптом `./letsencrypt.sh` (в `.env` на сервере нужны `DOMAIN` и `LETSENCRYPT_EMAIL`, проверка без выпуска — `--dry-run`). Если `DOMAIN` — IP-адрес, скрипт запрашивает IP-сертификат с профилем `shortlived` (действует около 6 дней, certbot продлевает его автоматически). Сейчас прод работает на `https://84.252.128.245` с валидным сертификатом Let's Encrypt. Когда появится домен, достаточно сменить `DOMAIN` и запустить скрипт ещё раз.
 
 **Сервер:** Rocky Linux 10, 2 vCPU / 16 GB / 10 GB SSD. Под ресурсы настроено:
 - лимиты памяти на каждый сервис, Postgres с `shared_buffers=2GB` и `max_wal_size=512MB`, Redis до 512 MB;
