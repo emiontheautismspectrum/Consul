@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -51,7 +52,7 @@ func main() {
 	//   prices-seed     insert the flagged sample bazaar prices for the demo
 	//   eval-chat       run the 50-question quality check against the real model (EVAL_ONLY=text filters)
 	if len(os.Args) > 1 {
-		cmds := map[string]func() error{"demo-reset": demoReset, "palata-seed": palataSeed, "palata-refresh": palataRefresh, "eval-chat": evalChat, "prices-refresh": pricesRefresh, "prices-seed": pricesSeed}
+		cmds := map[string]func() error{"demo-reset": demoReset, "palata-seed": palataSeed, "palata-refresh": palataRefresh, "eval-chat": evalChat, "prices-refresh": pricesRefresh, "prices-seed": pricesSeed, "prices-fetch": pricesFetch, "prices-import": pricesImport}
 		if cmd, ok := cmds[os.Args[1]]; ok {
 			if err := cmd(); err != nil {
 				slog.Error(os.Args[1], "err", err)
@@ -434,4 +435,30 @@ func pricesSeed() error {
 	}
 	defer done()
 	return prices.NewRepo(database).SeedSample(context.Background(), time.Now())
+}
+
+// pricesFetch downloads narx.stat.uz and prints the observations as JSON. It exists for hosts
+// the public service does not answer (it times out from our VPS): fetch anywhere, then pipe
+// the JSON into `prices-import` on the server.
+func pricesFetch() error {
+	obs, err := prices.NewNarxStat().Fetch(context.Background())
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(obs)
+}
+
+func pricesImport() error {
+	var obs []prices.Observation
+	if err := json.NewDecoder(os.Stdin).Decode(&obs); err != nil {
+		return err
+	}
+	database, done, err := adminDB()
+	if err != nil {
+		return err
+	}
+	defer done()
+	n, err := prices.NewRepo(database).Store(context.Background(), "narx_stat", obs, 0)
+	slog.Info("prices imported", "observations", len(obs), "stored", n)
+	return err
 }

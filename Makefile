@@ -115,3 +115,14 @@ vps-logs:
 vps-host:
 	tar -cz -C deploy/vps/host . | $(SSH) 'rm -rf /tmp/host && mkdir -p /tmp/host && tar -xz -C /tmp/host && /tmp/host/apply.sh'
 	$(SSH) -o ConnectTimeout=10 'sudo systemctl stop fw-rollback.timer; rm -rf /tmp/host; sudo fail2ban-client status | tail -1; echo "new SSH session OK, rollback cancelled"'
+
+## Market prices: fetch narx.stat.uz + recompute anonymous medians / insert the flagged sample bazaar prices
+prices-refresh-vps:
+	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api prices-refresh'
+
+prices-seed-vps:
+	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api prices-seed'
+
+## Same, for when the VPS cannot reach narx.stat.uz: fetch from this machine, import on the server
+prices-push-vps:
+	cd backend && go run ./cmd/api prices-fetch | $(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api prices-import'
