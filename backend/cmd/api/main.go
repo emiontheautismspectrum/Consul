@@ -21,6 +21,7 @@ import (
 	"finadvisor/internal/infrastructure/db"
 	"finadvisor/internal/infrastructure/httpx"
 	"finadvisor/internal/infrastructure/llm"
+	"finadvisor/internal/infrastructure/ratelimit"
 	"finadvisor/internal/user"
 	"finadvisor/internal/vision"
 	"finadvisor/migrations"
@@ -71,7 +72,8 @@ func run() error {
 
 	// Auth
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTAccessSecret, cfg.JWTRefreshSecret, cfg.AccessTTL, cfg.RefreshTTL)
-	authSvc := auth.NewService(auth.NewPGRepo(database), auth.NewHasher(cfg.Pepper), jwtIssuer, rdb)
+	authSvc := auth.NewService(auth.NewPGRepo(database), auth.NewHasher(cfg.Pepper), jwtIssuer, rdb).
+		WithAttemptGuard(rdb) // per-account login lockout
 	authH := auth.NewHandler(authSvc, jwtIssuer, auth.CookieConfig{Secure: cfg.CookieSecure, Domain: cfg.CookieDomain})
 
 	// Calculator
@@ -125,8 +127,28 @@ func run() error {
 	}
 	v1.HandleFunc("/", notFound)
 
+	// Application rate limits (Redis). nginx in front limits per IP; these add per-user and
+	// per-route business limits shared by all API instances. Daily AI quotas live in the
+	// advisor and vision services.
+	const minute = time.Minute
+	globalLimit := ratelimit.Rule{Name: "api", Limit: 120, Window: minute, Key: ratelimit.ByUserOrIP}
+	routeLimits := map[string]ratelimit.Rule{
+		"POST /auth/register":        {Name: "register", Limit: 10, Window: 60 * minute, Key: ratelimit.ByIP},
+		"POST /auth/login":           {Name: "login", Limit: 20, Window: 10 * minute, Key: ratelimit.ByIP},
+		"POST /auth/refresh":         {Name: "refresh", Limit: 30, Window: 10 * minute, Key: ratelimit.ByIP},
+		"POST /advisor/generate":     {Name: "generate", Limit: 5, Window: 10 * minute, Key: ratelimit.ByUserOrIP},
+		"POST " + vision.Route:       {Name: "photo", Limit: 10, Window: minute, Key: ratelimit.ByUserOrIP},
+		"POST /calculator/tax":       {Name: "calc", Limit: 60, Window: minute, Key: ratelimit.ByUserOrIP},
+		"POST /calculator/calculate": {Name: "calc", Limit: 60, Window: minute, Key: ratelimit.ByUserOrIP},
+		"POST /calculator/breakeven": {Name: "calc", Limit: 60, Window: minute, Key: ratelimit.ByUserOrIP},
+	}
+	api1 := httpx.Chain(v1,
+		authH.OptionalAuth, // identify the user (never rejects) so limits can key by user
+		ratelimit.Global(rdb, globalLimit, "/healthz", "/readyz"),
+		ratelimit.Routes(rdb, routeLimits))
+
 	mux := http.NewServeMux()
-	httpx.Mount(mux, httpx.APIv1, v1)
+	httpx.Mount(mux, httpx.APIv1, api1)
 	mux.HandleFunc("/", notFound)
 
 	handler := httpx.Chain(mux,

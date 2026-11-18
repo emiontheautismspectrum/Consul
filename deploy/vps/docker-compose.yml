@@ -86,7 +86,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?sslmode=disable
       MIGRATE_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       REDIS_ADDR: redis:6379
-    mem_limit: 1g
+      GOMEMLIMIT: 1500MiB   # GC returns memory before hitting the container limit
+    mem_limit: 2g
     depends_on:
       pgbouncer: {condition: service_started}
       postgres: {condition: service_healthy}

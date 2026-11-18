@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"runtime"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -19,9 +20,19 @@ const (
 
 // Hasher implements hash = Argon2id(password + salt + pepper). The salt is unique per user
 // and stored in the DB; the pepper lives only in the backend environment.
-type Hasher struct{ pepper []byte }
+//
+// Each hash allocates argonMemory (64 MiB) and already uses argonThreads cores, so running
+// more hashes in parallel than there are cores adds no throughput — only memory. Without
+// this bound, ~16 concurrent logins exceed a 1 GiB container and the API is OOM-killed
+// (found by load testing). The semaphore caps Argon2 memory at NumCPU × 64 MiB.
+type Hasher struct {
+	pepper []byte
+	sem    chan struct{}
+}
 
-func NewHasher(pepper string) *Hasher { return &Hasher{pepper: []byte(pepper)} }
+func NewHasher(pepper string) *Hasher {
+	return &Hasher{pepper: []byte(pepper), sem: make(chan struct{}, max(2, runtime.NumCPU()))}
+}
 
 func (h *Hasher) NewSalt() (string, error) {
 	b := make([]byte, saltLen)
@@ -32,6 +43,8 @@ func (h *Hasher) NewSalt() (string, error) {
 }
 
 func (h *Hasher) Hash(password, salt string) string {
+	h.sem <- struct{}{}
+	defer func() { <-h.sem }()
 	input := append([]byte(password+salt), h.pepper...)
 	key := argon2.IDKey(input, []byte(salt), argonTime, argonMemory, argonThreads, argonKeyLen)
 	return base64.RawStdEncoding.EncodeToString(key)

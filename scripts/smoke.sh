@@ -68,5 +68,13 @@ code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "$URL/api/v1/auth/refresh
 [ "$code" = 401 ] && pass "reuse of rotated refresh token rejected (401)" || fail "rotated refresh reuse: got $code"
 expect "logout" 204 -X POST "$URL/api/v1/auth/logout"
 expect "me after logout → 401" 401 "$URL/api/v1/me"
+
+# Redis rate limiting: headers on API responses and per-account login lockout.
+curl -sk -D /tmp/smoke_hdr.$$ -o /dev/null "$URL/api/v1/calculator/rules"
+grep -qi '^x-ratelimit-remaining:' /tmp/smoke_hdr.$$ && pass "X-RateLimit headers present" || fail "no X-RateLimit headers" "$(cat /tmp/smoke_hdr.$$)"
+rm -f /tmp/smoke_hdr.$$
+for i in 1 2 3 4 5; do $C -o /dev/null -X POST "$URL/api/v1/auth/login" -d "{\"email\":\"$EMAIL\",\"password\":\"wrong-password\"}"; done
+expect "account locked after 5 failed logins → 429" 429 -X POST "$URL/api/v1/auth/login" -d "{\"email\":\"$EMAIL\",\"password\":\"password123\"}"
+out | grep -q too_many_attempts && pass "lockout error code" || fail "lockout code" "$(out)"
 rm -f /tmp/smoke_body.$$
 echo "All checks passed"

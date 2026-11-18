@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"finadvisor/internal/infrastructure/ratelimit"
 )
 
 type Redis struct{ c *redis.Client }
@@ -56,14 +58,53 @@ func (r *Redis) SetJSON(ctx context.Context, key string, v any, ttl time.Duratio
 	return r.c.Set(ctx, key, b, ttl).Err()
 }
 
-// Allow increments a fixed-window counter and reports whether it is still within limit.
-func (r *Redis) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, int, error) {
+// Take counts one hit in a fixed window and reports the window state. INCR, PEXPIRE NX and
+// PTTL run in one MULTI, so concurrent requests cannot leave a counter without a TTL.
+func (r *Redis) Take(ctx context.Context, key string, limit int, window time.Duration) (ratelimit.Result, error) {
+	k := "rl:" + key
 	pipe := r.c.TxPipeline()
-	incr := pipe.Incr(ctx, "rl:"+key)
-	pipe.ExpireNX(ctx, "rl:"+key, window)
+	incr := pipe.Incr(ctx, k)
+	pipe.Do(ctx, "PEXPIRE", k, window.Milliseconds(), "NX")
+	ttl := pipe.PTTL(ctx, k)
 	if _, err := pipe.Exec(ctx); err != nil {
-		return false, 0, err
+		return ratelimit.Result{}, err
 	}
 	n := int(incr.Val())
-	return n <= limit, max(limit-n, 0), nil
+	reset := ttl.Val()
+	if reset < 0 {
+		reset = window
+	}
+	return ratelimit.Result{Allowed: n <= limit, Limit: limit, Remaining: max(limit-n, 0), ResetIn: reset}, nil
+}
+
+// Allow is Take for callers that only need the verdict (daily quotas).
+func (r *Redis) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, int, error) {
+	res, err := r.Take(ctx, key, limit, window)
+	return res.Allowed, res.Remaining, err
+}
+
+// Failures returns the number of recorded failures for key and the time until they expire.
+func (r *Redis) Failures(ctx context.Context, key string) (int, time.Duration, error) {
+	pipe := r.c.Pipeline()
+	get := pipe.Get(ctx, "fail:"+key)
+	ttl := pipe.PTTL(ctx, "fail:"+key)
+	_, err := pipe.Exec(ctx)
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return 0, 0, err
+	}
+	n, _ := get.Int()
+	return n, max(ttl.Val(), 0), nil
+}
+
+// AddFailure records a failure; the window starts at the first failure.
+func (r *Redis) AddFailure(ctx context.Context, key string, window time.Duration) error {
+	pipe := r.c.TxPipeline()
+	pipe.Incr(ctx, "fail:"+key)
+	pipe.Do(ctx, "PEXPIRE", "fail:"+key, window.Milliseconds(), "NX")
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+func (r *Redis) ResetFailures(ctx context.Context, key string) error {
+	return r.c.Del(ctx, "fail:"+key).Err()
 }

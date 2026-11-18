@@ -2,7 +2,9 @@ package auth
 
 import (
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"finadvisor/internal/infrastructure/httpx"
@@ -65,7 +67,12 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, t, err := h.svc.Login(r.Context(), in.Email, in.Password)
+	var locked *LockedError
 	switch {
+	case errors.As(err, &locked):
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(locked.RetryIn.Seconds()))))
+		httpx.Error(w, http.StatusTooManyRequests, "too_many_attempts",
+			"too many failed login attempts for this account, try again later")
 	case errors.Is(err, ErrBadCredentials):
 		httpx.Error(w, http.StatusUnauthorized, "bad_credentials", err.Error())
 	case err != nil:

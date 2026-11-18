@@ -190,3 +190,95 @@ func TestCookiesAreHardened(t *testing.T) {
 		t.Errorf("anonymous request got %d", rec.Code)
 	}
 }
+
+type memGuard struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (g *memGuard) Failures(_ context.Context, key string) (int, time.Duration, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.n[key], 10 * time.Minute, nil
+}
+func (g *memGuard) AddFailure(_ context.Context, key string, _ time.Duration) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.n[key]++
+	return nil
+}
+func (g *memGuard) ResetFailures(_ context.Context, key string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.n, key)
+	return nil
+}
+
+func TestLoginLockoutPerAccount(t *testing.T) {
+	ctx := context.Background()
+	g := &memGuard{n: map[string]int{}}
+	s := newTestService().WithAttemptGuard(g)
+	s.Register(ctx, "victim@mail.uz", "password1", "")
+
+	// a success resets the counter
+	s.Login(ctx, "victim@mail.uz", "wrong-1")
+	if _, _, err := s.Login(ctx, "victim@mail.uz", "password1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.n) != 0 {
+		t.Error("successful login must reset failures")
+	}
+
+	for i := 0; i < maxLoginFailures; i++ {
+		if _, _, err := s.Login(ctx, "Victim@Mail.uz", "wrong"); !errors.Is(err, ErrBadCredentials) {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	// even the right password is refused while locked
+	_, _, err := s.Login(ctx, "victim@mail.uz", "password1")
+	var locked *LockedError
+	if !errors.As(err, &locked) || !errors.Is(err, ErrTooManyAttempts) || locked.RetryIn != 10*time.Minute {
+		t.Fatalf("expected lockout, got %v", err)
+	}
+	// other accounts are unaffected
+	s.Register(ctx, "other@mail.uz", "password1", "")
+	if _, _, err := s.Login(ctx, "other@mail.uz", "password1"); err != nil {
+		t.Errorf("other account locked: %v", err)
+	}
+	for k := range g.n {
+		if strings.Contains(k, "@") {
+			t.Error("email must not be stored in clear text")
+		}
+	}
+}
+
+func TestHasherBoundsConcurrency(t *testing.T) {
+	h := NewHasher("p")
+	salt, _ := h.NewSalt()
+	var mu sync.Mutex
+	inFlight, peak := 0, 0
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.sem <- struct{}{} // observe the same semaphore Hash uses
+			mu.Lock()
+			inFlight++
+			peak = max(peak, inFlight)
+			mu.Unlock()
+			time.Sleep(5 * time.Millisecond)
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			<-h.sem
+		}()
+	}
+	wg.Wait()
+	if peak > cap(h.sem) {
+		t.Errorf("peak concurrency %d exceeds bound %d", peak, cap(h.sem))
+	}
+	if h.Hash("x", salt) == "" {
+		t.Error("hash must still work")
+	}
+}
