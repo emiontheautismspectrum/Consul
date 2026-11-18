@@ -1,5 +1,5 @@
 /**
- * Typed client for the Go backend (arcanum-api, /api/v1). Cookies carry the session
+ * Typed client for the Go backend (/api/v1). Cookies carry the session
  * (HttpOnly, same origin through nginx or the Next rewrite). Server numbers are mapped onto
  * the cabinet's Ledger shape, so every screen keeps working unchanged: view(ledger) on the
  * mapped state reproduces the server's "can spend" exactly.

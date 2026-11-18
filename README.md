@@ -1,209 +1,141 @@
-# Consul — ИИ-финансовый помощник для малого бизнеса Узбекистана
+# Consul — an AI money assistant for small businesses in Uzbekistan
 
-Веб-сервис помогает предпринимателю составить бизнес-план, подобрать налоговый режим, рассчитать кредит и окупаемость. Работает на узбекском, русском и английском.
+**English** · [Русский](README.ru.md)
 
-**Главная идея:** LLM не придумывает цифры. Через tool calling она вызывает **детерминированные калькуляторы на Go** (кредит, налоги УзР, точка безубыточности). Каждое число в плане проверяется по результату калькулятора и помечается ✓ или ⚠. Трасса вызовов сохраняется вместе с планом.
+Consul is a pocket accountant for small traders. The owner writes or says *"sold 1 200 000 cash"*, and Consul keeps the books, answers **"how much can I spend today?"**, calculates taxes and loans, reads photos of receipts and invoices, compares prices with the market, and explains it all in Uzbek or Russian.
 
-> ⚠️ Расчёты носят информационный характер и **не являются налоговой, юридической или кредитной консультацией**. Налоговые ставки взяты из Налогового кодекса РУз ([lex.uz](https://lex.uz/docs/4674902)) и [soliq.uz](https://soliq.uz) и требуют сверки с актуальной редакцией.
+Built for the Umummilliy AI Hackathon (Tashkent, 17–19 Nov 2026), Chamber of Commerce problems 20 and 21. Demo persona: *Dilnoza, dried fruit, Chorsu bazaar, sole proprietor (YaTT)*.
 
----
+> **The rule behind everything: code computes every number, the LLM only understands language and explains.** A number the assistant shows must come from a tool result; otherwise the answer is rejected and a template answer is returned instead.
 
-## Быстрый старт (одна команда)
+> ⚠️ Informational only — **not tax, legal or credit advice.** Tax rules come from the Tax Code ([lex.uz](https://lex.uz/docs/4674902), [soliq.uz](https://soliq.uz)) and must be checked against the current edition.
+
+## What it does
+
+| Area | What you get |
+|---|---|
+| **Ledger** | One source of truth (`ops` table): sales, purchases, expenses, credit sales (nasiya), repayments. Cash/card balances, debtors, profit, "free to spend" after tax and reserve. Money is integer so'm, days follow Asia/Tashkent. Undo, idempotent writes. |
+| **Consul chat** | Text parser for operations (no LLM) → a draft the user confirms; an LLM agent with tools for questions. Streaming (SSE), saved chats, memory of facts the user told it, Uzbek and Russian. |
+| **Grounding** | Tools: `get_today`, `get_months`, `list_debtors`, `get_obligations`, `compute_tax`, `compute_loan`, `query_ops` (safe read-only search of the user's own operations), `market_prices`, `remember_fact`. Numbers in the reply are checked against tool output; customer names reach the model only as `D1`, `D2`… |
+| **Knowledge base** | Curated entries (margin, turnover, tax regimes, state support…) with sources; lexical retrieval (not vector search). Tax and support rules are marked "check soliq.uz". |
+| **Photos** | `POST /photo` — a vision model (kimi-k3 through the gateway) reads receipts, invoices and documents, returns fields, line items and draft operations. |
+| **Voice** | VoiceLab speech-to-text and text-to-speech. |
+| **Calculators** | Loan (annuity / differentiated), Uzbek taxes, break-even — pure Go functions, public endpoints. |
+| **What-if, plan, bank report** | "What if I buy 15 mln of goods / take a 34 mln loan?", a start-up plan, a one-page financial report for a bank. |
+| **Market prices** | Official weekly averages from [narx.stat.uz](https://narx.stat.uz), anonymous bazaar medians from users' receipts (only when ≥ 5 different users bought the product), and the user's own price. |
+| **Chamber report** | Aggregates for the Chamber of Commerce: only users who consented, groups of fewer than 5 are never returned, bootstrap confidence intervals. The demo population is synthetic and flagged as such. |
+| **Privacy** | Consent screens, data export (CSV), account deletion, PII masking before any LLM call. |
+
+## Architecture
+
+```
+ browser ──► nginx (TLS, canonical host, rate limits) ─┬─► Next.js 16 (SSR, standalone)   /
+                                                       └─► Go API (net/http)              /api/v1/*
+ Go modular monolith — modules talk through interfaces wired in backend/cmd/api/main.go
+   auth · user · ledger · consul (chat agent) · kb · vision · speech · calculator
+   advisor · palata · prices · infrastructure (config, db, cache, llm, httpx, pii, ratelimit)
+        │                         │
+   PgBouncer ► PostgreSQL 17     Redis 7 (JWT blacklist, cache, rate limits, OTP hashes)
+        │
+   LLM gateway (OpenAI-compatible) · VoiceLab · narx.stat.uz
+```
+
+Why this stack: Go gives one small static binary and fast tests for the money math; Postgres with goose migrations keeps the ledger transactional; PgBouncer lets many connections share a small pool (transaction mode, so pgx runs in simple protocol); Redis holds short-lived state; Next.js SSR gives fast first paint on cheap phones; nginx terminates TLS and rate-limits before Go sees traffic.
+
+## Quick start
+
+Requirements: Docker with compose v2. Go ≥ 1.27 and Node ≥ 20 only for running tests outside Docker.
 
 ```bash
-make up          # создаёт .env со случайными секретами, self-signed сертификат и поднимает весь стек
-make smoke       # сквозной сценарий: регистрация → калькуляторы → ИИ-план → refresh → logout
+make up          # creates .env with random secrets, a self-signed certificate, starts the whole stack
+make smoke       # end-to-end scenario against https://localhost
 ```
 
-- Swagger UI: <https://localhost/api/v1/docs> (сертификат self-signed, браузер предупредит)
-- Для ИИ-консультанта впишите в `.env` переменные `BASE_URL` (OpenAI-совместимый шлюз) и `AI_API_KEY`, затем выполните `docker compose up -d api`.
+- API docs (Swagger UI): `https://localhost/api/v1/docs` (self-signed certificate, the browser will warn).
+- Put `BASE_URL`, `AI_API_KEY` (and optionally `AI_MODEL`) into `.env` for the assistant, then `docker compose up -d api`. Without an LLM the chat still answers from templates.
+- **Demo login:** set `APP_ENV=demo` and `DEMO_OTP=123456` in `.env` (and `docker compose up -d api`), then log in with phone `+998901234567` and code **`123456`**. In this mode every phone accepts the demo code, so never enable it on a public production instance. `make demo-reset` restores the reference ledger (free to spend = 4 200 000 so'm).
 
-Нужен только Docker (с compose v2). Для `make test` нужен ещё Go ≥ 1.27.
-
-## Архитектура — модульный монолит
-
-```
-              ┌───────────── NGINX (TLS, rate limit, HSTS) ─────────────┐
-   браузер ──►│  /            → Next.js :3000 (отдельный репозиторий)    │
-              │  /api/*       → Go API :8080                             │
-              └──────────────────────────────┬───────────────────────────┘
-                                             ▼
- ┌──────────────────────────── Go монолит (net/http ServeMux) ────────────────────────────┐
- │  auth/        регистрация, Argon2id + salt + pepper, JWT access/refresh, ротация          │
- │  calculator/  кредит (аннуитет/дифф.), налоги УзР, break-even  ◄── Engine (interface)     │
- │  advisor/     LLM-агент: tool calling → calculator.Engine, анонимизация, история планов   │
- │  user/        профиль, согласие на обработку ПДн, статистика                              │
- │  infrastructure/  config · db (pgx + goose) · cache (Redis) · llm (OpenAI-compatible) · httpx │
- └──────────────┬──────────────────────────────┬──────────────────────────────────────────┘
-                ▼                              ▼
-     PgBouncer (transaction) ──► PostgreSQL   Redis (blacklist JWT, кэш расчётов, лимиты ИИ)
+```bash
+make test        # Go tests (+ vet)
+cd frontend && npm install && npm test && npm run typecheck && npm run dev
 ```
 
-Модули не импортируют друг друга напрямую. Связи задаются интерфейсами и собираются в `cmd/api/main.go`. Например, `advisor` знает о калькуляторах только через `calculator.Engine` и о согласии пользователя только через `ConsentChecker`.
-
-### Почему такой стек (по одной фразе)
-
-| Компонент | Почему |
-|---|---|
-| **Go + net/http** | Быстрая и точная арифметика, один статический бинарник, роутинг Go 1.22+ без фреймворков. |
-| **Модульный монолит** | Деплоится как один сервис, но модули изолированы, и их можно вынести в микросервисы без переписывания. |
-| **PostgreSQL + database/sql без ORM** | Полный контроль над SQL; все запросы параметризованы (`$1`). |
-| **PgBouncer (transaction)** | Ограничивает число реальных соединений с БД при росте нагрузки. |
-| **Redis** | Мгновенный blacklist refresh-токенов, кэш детерминированных расчётов, дневные лимиты ИИ. |
-| **NGINX** | Единая точка входа: TLS, HSTS, rate limit (общий, на auth, на ИИ), прокси на фронт и API. |
-| **LLM через OpenAI-совместимый шлюз (DeepSeek)** | Провайдер меняется переменной `BASE_URL` без изменения кода; tool calling для калькуляторов. |
-
-## Как ИИ использует калькуляторы
-
-1. Wizard фронтенда отправляет `POST /api/v1/advisor/generate`: ниша, бюджет, кредит, цены, язык.
-2. Бэкенд проверяет согласие на обработку данных и дневной лимит. Затем **анонимизирует** свободный текст: телефоны `+998…`, email, СТИР, ПИНФЛ, паспорт, карты.
-3. Агент передаёт LLM системный промпт («числа — только из инструментов») и 4 инструмента: `calculate_tax`, `calculate_loan`, `calculate_breakeven` и `get_tax_rules`.
-4. LLM вызывает инструменты, Go считает и возвращает результат. Цикл длится максимум 8 итераций. Если модель ответила без вызова калькуляторов, её возвращают к инструментам.
-5. Финальный ответ — JSON-план. Каждое `key_numbers[].value` проверяется по результатам калькуляторов (**grounding check**): `verified: true/false`.
-6. В БД сохраняются план (markdown + структура), трасса `tool_calls` и расход токенов. Расход токенов нужен для юнит-экономики.
-
-## Распознавание документов по фото
-
-`POST /api/v1/photo` принимает фото или скан (JPEG, PNG или WebP, до 10 MB) в `multipart/form-data` и отправляет его мультимодальной модели `kimi-k3` через тот же шлюз. Модель задаётся переменной `AI_VISION_MODEL`.
-
-В ответе приходят:
-- тип документа: счёт-фактура, договор, акт, чек, выписка, налоговая форма, паспорт и т. д.;
-- полная расшифровка текста на языке оригинала;
-- ключевые поля: стороны, номер и дата, суммы, НДС, СТИР, банковские реквизиты;
-- резюме и предупреждения (размыто, нет печати, не сходятся суммы) на языке `lang`;
-- `draft_ops`: для чека или накладной — черновик закупки (сумма, поставщик, способ оплаты, фискальный признак). В учёт он попадает только после подтверждения через `POST /ops`.
-
-Для распознавания нужны логин и согласие на обработку ПДн. Картинка обрабатывается только в памяти: она не сохраняется и не пишется в логи. Действует дневной лимит на пользователя, а в nginx — отдельная зона rate-limit и `client_max_body_size 11m`.
+PostgreSQL integration tests run when `LEDGER_IT_DSN` is set (see `backend/internal/ledger/repo_integration_test.go`).
 
 ## API
 
-Весь API находится под префиксом `/api/v1`: бизнес-ручки, health-проверки (`/api/v1/healthz`, `/api/v1/readyz`), Swagger UI (`/api/v1/docs`) и спецификация (`/api/v1/openapi.yaml`). Модули регистрируют пути без префикса, а версия монтируется один раз в `cmd/api/main.go` (`httpx.Mount`). Будущая `v2` — это ещё один такой монтаж рядом, модули менять не придётся.
+All routes live under `/api/v1`; the contract is [`backend/api/openapi.yaml`](backend/api/openapi.yaml). Errors always look like `{"error":{"code","field","message"}}`. Writes need an `Idempotency-Key`.
 
-Полный контракт: [`backend/api/openapi.yaml`](backend/api/openapi.yaml), Swagger на `/api/v1/docs`.
-
-| Метод | Путь | Описание |
-|---|---|---|
-| POST | `/api/v1/auth/register` · `/login` · `/refresh` · `/logout` | Токены приходят в cookie `HttpOnly; Secure; SameSite=Strict` |
-| GET/PATCH | `/api/v1/me` | Профиль и язык (`uz`/`ru`/`en`) |
-| POST/DELETE | `/api/v1/me/consent` | Дать или отозвать согласие на обработку ПДн |
-| GET | `/api/v1/me/stats` | Агрегаты для дашборда |
-| POST | `/api/v1/calculator/calculate` | Кредит: аннуитет или дифференцированный, льготный период |
-| POST | `/api/v1/calculator/tax` | Налоги: налог с оборота или общий режим, сравнение, рекомендация |
-| POST | `/api/v1/calculator/breakeven` | Точка безубыточности, окупаемость, ROI, cash-flow на 24 месяца |
-| GET | `/api/v1/calculator/rules` · `/history` | Налоговые ставки со ссылками · история расчётов |
-| POST | `/api/v1/advisor/generate` | ИИ-бизнес-план |
-| GET/DELETE | `/api/v1/advisor/plans` · `/plans/{id}` | История планов с пагинацией |
-| POST | `/api/v1/photo` | Распознавание фото документа (multipart: `file`, `lang`) |
-| GET | `/api/v1/reports/bank?months=3` | Отчёт для банка: доход, расход, прибыль по месяцам; текущий месяц помечен неполным и в среднее не входит |
-| POST | `/api/v1/forecast/whatif` | «Что если»: прогноз денег на 30 дней с покупкой, помощником или кредитом и без них |
-| POST | `/api/v1/advisor/plan` | План: прибыль и окупаемость; себестоимость берётся из истории операций пользователя |
-| GET/DELETE | `/api/v1/chats` · `/chats/{id}/messages` · `/chats/{id}` | История чатов Consul |
-| GET/PUT/DELETE | `/api/v1/memory` · `/memory/{key}` | «Память Consul»: факты, которые пользователь видит, правит и стирает (лимит 50) |
-| GET | `/api/v1/me/export.csv` | Выгрузка всех операций (CSV, `;`, UTF-8 BOM для Excel) |
-| DELETE | `/api/v1/me?confirm=delete` | Удаление аккаунта и всех данных (операции, долги, чаты, память, планы) |
-| POST | `/api/v1/me/survey` | Ответ «почему не оформляетесь» для отчёта Палаты (только доли, от 5 ответов) |
-
-Калькуляторы работают без логина: это открытая воронка и SEO. Для залогиненных расчёты сохраняются в историю.
-
-## Безопасность и данные
-
-- **Пароли:** `Argon2id(password + salt + pepper)`. Соль уникальна для каждого пользователя и хранится в БД. Pepper есть только в ENV.
-- **JWT:** access живёт 15 минут, refresh — 14 дней. Разные секреты, проверка `typ`. Refresh-токен **ротируется**: старый `jti` попадает в Redis-blacklist, повторное использование даёт 401.
-- **Cookies:** `HttpOnly; Secure; SameSite=Strict`. Refresh-cookie ограничена путём `/api/v1/auth`.
-- **SQL:** только параметризованные запросы. pgx работает в `simple_protocol`, так что он совместим с PgBouncer в transaction mode.
-- **ПДн:** без явного согласия генерация недоступна. Перед отправкой в LLM данные маскируются, в БД хранится анонимизированный ввод.
-- **Лимиты:** в nginx — 10 r/s на API, 10 r/min на auth, 3 r/min на ИИ. В Redis — `AI_DAILY_LIMIT` генераций в сутки на пользователя.
-
-### Rate limiting: два слоя
-
-**nginx (по IP, до Go)** отсекает флуд дешевле всего:
-
-| Зона | Лимит |
+| Group | Endpoints |
 |---|---|
-| весь `/api/` | 30 r/s, burst 60 |
-| `/api/v1/auth/` | 60 r/min, burst 30 |
-| `/api/v1/advisor/generate` | 3 r/min, burst 3 |
-| `/api/v1/photo` | 10 r/min, burst 5 |
-| соединений с одного IP | 200 |
+| Auth | `/auth/otp/send`, `/auth/otp/verify`, `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/demo` |
+| Ledger | `/ledger/today`, `/ops`, `/ops/parse`, `/ops/{id}`, `/debtors`, `/obligations`, `/forecast/whatif`, `/reports/bank` |
+| Assistant | `/consul/ask` (JSON or SSE), `/chats`, `/memory`, `/photo`, `/voice/stt`, `/voice/tts` |
+| Calculators | `/calculator/calculate`, `/calculator/tax`, `/calculator/breakeven`, `/calculator/rules` |
+| Market & Chamber | `/prices`, `/palata/report`, `/palata/report.csv` |
+| Account | `/me`, `/me/business`, `/me/consent`, `/me/export.csv`, `DELETE /me` |
 
-При превышении nginx отвечает JSON `{"error":{"code":"rate_limited"}}`. IP, которые долбятся в лимиты, банит fail2ban.
+## Assistant quality
 
-**Redis (в приложении)** даёт то, чего nginx не видит. Лимиты на IP намеренно мягкие: на площадке хакатона или в офисе все сидят за одним NAT-адресом. Строгие лимиты стоят на пользователя, номер телефона (3 SMS-кода за 10 минут) и аккаунт. Все лимиты собраны в одной таблице в `cmd/api/main.go`.
-
-| Правило | Лимит | Ключ |
-|---|---|---|
-| весь API | 300 / мин | пользователь, для анонимов — IP |
-| регистрация | 100 / час | IP |
-| логин | 100 / 10 мин | IP |
-| refresh | 300 / 10 мин | IP |
-| калькуляторы | 60 / мин | пользователь или IP |
-| ИИ-план | 5 / 10 мин + 20 / сутки | пользователь |
-| фото | 10 / мин + 50 / сутки | пользователь |
-| **неудачные логины в аккаунт** | 5 / 15 мин → блокировка аккаунта | SHA-256 email |
-
-Ответы содержат `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, а при 429 — `Retry-After`. Лимит по пользователю нельзя обойти сменой IP. Блокировка по аккаунту защищает от подбора пароля с ботнета. Если Redis недоступен, лимиты пропускают запросы (fail-open), а nginx продолжает защищать.
-
-**Argon2 и память.** Каждый хеш занимает 64 MiB, поэтому число одновременных хешей ограничено числом ядер. Без этого ~16 параллельных логинов роняли API по OOM: это нашёл нагрузочный тест.
-
-
-
-В примере из ТЗ `users` соединяется сразу с `business_plans` и `loan_calculations`. Получается декартово произведение (N планов × M расчётов), и `COUNT` завышается. Мы сначала агрегируем в CTE (`COUNT … FILTER`), а потом присоединяем страницу последних планов (`LIMIT/OFFSET`). Код: [`backend/internal/user/user.go`](backend/internal/user/user.go).
-
-## Налоговые правила
-
-Файл [`backend/internal/calculator/rules/uz_tax_2026.json`](backend/internal/calculator/rules/uz_tax_2026.json): ставки хранятся как данные, у каждой указана статья НК. Если закон изменится, правится JSON, а код остаётся прежним.
-
-| Параметр | Значение (допущение, сверить) |
-|---|---|
-| Налог с оборота, юрлица | 4% |
-| Налог с оборота, ИП (с 01.01.2026) | 1% |
-| Порог налога с оборота | 1 млрд сум/год |
-| НДС | 12% |
-| Налог на прибыль | 15% |
-| НДФЛ | 12% |
-| Социальный налог | 12%; ИП — 1 БРВ/мес |
-
-Источники: [Налоговый кодекс РУз — lex.uz](https://lex.uz/docs/4674902), [soliq.uz](https://soliq.uz).
-
-## Тесты
+The assistant has a built-in test harness: `api eval-chat` asks 54 questions (Uzbek and Russian) on the reference ledger and checks the numbers, refusals, topics, sources, latency and fallbacks.
 
 ```bash
-make test        # unit-тесты: калькуляторы (эталонные значения), auth, ИИ-агент на fake-LLM, анонимизация
-make test-v      # подробный вывод тестов калькуляторов
-make smoke       # e2e через nginx на поднятом стеке
+docker compose exec -T api /api eval-chat        # locally
+make eval-chat-vps MODEL=deepseek-v4.1-flash     # on the server
 ```
 
-Эталонный пример: кредит 100 млн сум под 24% на 12 месяцев даёт аннуитетный платёж **9 455 959.66** и переплату по дифференцированной схеме **13 000 000**. Тесты проверяют инварианты графика: баланс в конце равен 0, сумма тела равна сумме кредита, платёж = тело + проценты.
+Latest run with `deepseek-v4.1-flash`: **40 / 54 (74 %)**, 43 answered by the model itself, median 2.8 s, p95 5.8 s. The rest fall back to templates, mostly because the number check rejected a figure the model produced without a tool (tax-rule questions, "how to grow profit"). We keep that strictness on purpose: a wrong number is worse than a template. Other models tried on this gateway did worse (gemini-2.5-flash 7/50).
 
-CI (`.github/workflows/ci.yml`): `gofmt`, `go vet`, `go test -race`, затем подъём стека в Docker и smoke-сценарий.
+## Deploy (VPS)
 
-## Деплой на VPS
-
-На сервере лежат **только конфиги**: `docker-compose.yml`, шаблон nginx, `.env` и скрипты. Код и образы туда не копируются. Образ API публикуется на Docker Hub (`xsenos/consul-api`; до переименования — `xsenos/finadvisor-api`, его теги остаются для отката), Postgres, Redis, PgBouncer и nginx — официальные образы.
+Only configuration files go to the server; code ships as Docker Hub images.
 
 ```bash
-make publish        # lint + тесты → buildx (linux/amd64) → push :<дата-sha> и :latest
-make deploy         # конфиги → /home/rocky/finadvisor, затем docker compose pull && up -d
-make deploy API_TAG=20261117-1922-30d2558   # откат на конкретную версию
-make vps-ps / make vps-logs
+make publish publish-web   # build and push xsenos/consul-api and xsenos/consul-web
+make deploy                # copy compose + nginx templates, docker compose pull && up -d
 ```
 
-При первом `make deploy` на сервере создаётся `.env` со случайными секретами (`deploy/vps/init-env.sh`) и self-signed сертификат для IP. Ключи LLM вписываются в `/home/rocky/finadvisor/.env` прямо на сервере. Сертификат Let's Encrypt выпускается скриптом `./letsencrypt.sh` (в `.env` на сервере нужны `DOMAIN` и `LETSENCRYPT_EMAIL`, проверка без выпуска — `--dry-run`). Если `DOMAIN` — IP-адрес, скрипт запрашивает IP-сертификат с профилем `shortlived` (действует около 6 дней, certbot продлевает его автоматически). Прод работает на **https://consul.env.uz** с сертификатом Let's Encrypt (90 дней, certbot продлевает сам). Запросы к другому Host (например, по IP) nginx перенаправляет на домен: один origin для cookies и CORS.
+Settings (`DOCKERHUB_USER`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `DEPLOY_DOMAIN`, …) live in `.env`. With a domain, nginx serves a canonical host and Let's Encrypt certificates (`deploy/vps/letsencrypt.sh`). Host hardening (key-only SSH, nftables firewall with rate limits, fail2ban, journald cap) is applied separately by `make vps-host` from `deploy/vps/host`.
 
-CORS: `ALLOWED_ORIGINS=https://consul.env.uz` в `.env` на сервере. Фронтенд ходит в API через тот же origin (nginx), так что CORS нужен только для сторонних клиентов; список разрешённых origin строгий, `*` не используется (cookies с `credentials`).
+Useful targets: `vps-ps`, `vps-logs`, `demo-reset-vps`, `palata-seed-vps`, `palata-refresh-vps`, `prices-seed-vps`, `prices-push-vps`, `eval-chat-vps`.
 
-**Сервер:** Rocky Linux 10, 2 vCPU / 16 GB / 10 GB SSD. Под ресурсы настроено:
-- лимиты памяти на каждый сервис, Postgres с `shared_buffers=2GB` и `max_wal_size=512MB`, Redis до 512 MB;
-- ротация логов Docker; nginx пишет в journald, размер журнала ограничен 300 MB.
+## Configuration
 
-**Hardening хоста** (`deploy/vps/host/`, применяется командой `make vps-host` с автооткатом файрвола через 3 минуты):
-- SSH только по ключу, root запрещён, `MaxAuthTries 3`.
-- nftables (`table inet host_fw`): на входе всё запрещено, кроме 22/80/443, ICMP и DHCP. Rate-limit на 22 — 6 новых соединений в минуту с IP. На 80/443 — 30 новых соединений в секунду и не больше 100 одновременных с IP; это правило стоит в prerouting, до DNAT Docker.
-- fail2ban: jail `sshd` и jail `nginx-limit-req` (свой фильтр `finadvisor-nginx-limit` читает journald контейнера nginx). Второй банит IP, которые упираются в лимиты nginx. Бан ставится в prerouting, потому что опубликованные порты Docker обходят цепочку INPUT.
-- Docker работает с `firewall-backend: nftables`: в облачном ядре нет модулей `xt_*` для iptables.
+Everything is read from `.env` (see [`.env.example`](.env.example)); secrets are never committed.
 
-**Фронтенд:** фронтендер публикует образ Next.js на Docker Hub. На сервере в `.env` указывается `WEB_IMAGE=<user>/finadvisor-web:<tag>`, затем выполняется `docker compose --profile web up -d web`. Nginx уже отдаёт `/` на `web:3000`.
+| Variable | Meaning |
+|---|---|
+| `BASE_URL`, `AI_API_KEY`, `AI_MODEL` | OpenAI-compatible LLM gateway and default model |
+| `AI_CHAT_MODEL`, `AI_CHAT_DEADLINE` | optional chat model override and answer deadline (default 20 s) |
+| `APP_ENV`, `DEMO_OTP`, `DEMO_PHONE` | `APP_ENV=demo` enables the fixed demo code (`123456`) and `POST /auth/demo` |
+| `POSTGRES_*`, `REDIS_PASSWORD` | database and cache |
+| `PEPPER`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | auth secrets (generated by `make env`) |
+| `ALLOWED_ORIGINS`, `COOKIE_SECURE`, `COOKIE_DOMAIN` | CORS and cookies |
+| `DOMAIN`, `LETSENCRYPT_EMAIL` | TLS for production |
+| `VOICELAB_API_KEY`, `VOICELAB_BASE_URL`, `VOICELAB_VOICE_UZ/RU` | speech provider (not in `.env.example`; add them if you use voice) |
+| `DOCKERHUB_USER`, `DEPLOY_*` | publishing and deploying |
 
-## Переменные окружения
+## Security and data
 
-См. [`.env.example`](.env.example). Обязательные: `PEPPER`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` и данные для БД/Redis (генерируются `make env`). Для ИИ: `BASE_URL`, `AI_API_KEY`, `AI_MODEL` (по умолчанию `deepseek-chat`).
+- Passwords/OTP: Argon2id with salt and pepper (memory-bounded), JWT access + refresh with rotation and a Redis blacklist.
+- Every handler takes the user from the JWT, never from the body.
+- Rate limits at three levels: nginx zones, Redis per user/IP, host nftables. fail2ban bans repeated abusers.
+- No personal data in logs or LLM prompts: names become `D1`…, phones, IDs and card numbers are masked.
+- Chamber statistics: consent only, k-anonymity with k = 5.
+
+## Known limitations
+
+- `narx.stat.uz` does not answer from our VPS (the IP range is blocked). Prices are fetched on a developer machine and imported: `make prices-push-vps`. Korzinka has no public price API, so it is not connected.
+- VoiceLab needs a `vlk_…` key; SMS delivery is not connected (OTP is demo-only).
+- Tax and state-support entries are curated, not automatically synchronised with lex.uz.
+- The frontend still ships a few static screens (Learn, the state-support list in Kredit, plan presets).
+
+## Repository layout
+
+```
+backend/   Go API: cmd/api, internal/<module>, migrations (goose), api/openapi.yaml
+frontend/  Next.js 16 app (see frontend/README.md)
+deploy/    nginx templates, VPS compose, host hardening (nftables, fail2ban), scripts
+scripts/   smoke tests
+docker-compose.yml   local stack          Makefile   all commands
+```

@@ -1,4 +1,4 @@
-# Next.js standalone image for the arcanum-api nginx (WEB_IMAGE -> web:3000).
+# Next.js standalone image for the Consul nginx (WEB_IMAGE -> web:3000).
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./

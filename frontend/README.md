@@ -17,7 +17,7 @@ npm run build        # production build (output: standalone)
 node .next/standalone/server.js   # or use the Dockerfile
 ```
 
-`API_URL` (default `http://localhost:8080`) is proxied as `/api/v1/*` for the Go backend (arcanum-api).
+`API_URL` (default `http://localhost:8080`) is proxied as `/api/v1/*` for the Go backend (`backend/`).
 
 ## Routes
 
