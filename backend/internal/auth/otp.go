@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	otpTTL        = 5 * time.Minute
-	otpLockTTL    = 10 * time.Minute
-	otpMaxWrong   = 3
-	otpSendLimit  = 3 // codes per otpSendWindow, per phone and per IP
-	otpSendWindow = 10 * time.Minute
+	otpTTL         = 5 * time.Minute
+	otpLockTTL     = 10 * time.Minute
+	otpMaxWrong    = 3
+	otpSendLimit   = 3  // codes per otpSendWindow per phone
+	otpSendLimitIP = 30 // per IP: a venue Wi-Fi shares one NAT address
+	otpSendWindow  = 10 * time.Minute
 )
 
 var (
@@ -94,8 +95,11 @@ func (o *OTP) Send(ctx context.Context, phone, ip string) error {
 	} else if l {
 		return ErrOTPLocked
 	}
-	for _, k := range []string{"send:" + o.key("p", phone), "send:ip:" + ip} {
-		res, err := o.store.Take(ctx, k, otpSendLimit, otpSendWindow)
+	for _, l := range []struct {
+		key   string
+		limit int
+	}{{"send:" + o.key("p", phone), otpSendLimit}, {"send:ip:" + ip, otpSendLimitIP}} {
+		res, err := o.store.Take(ctx, l.key, l.limit, otpSendWindow)
 		if err != nil {
 			return err
 		}

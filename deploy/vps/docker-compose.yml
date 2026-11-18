@@ -82,7 +82,7 @@ services:
     image: ${DOCKERHUB_USER}/consul-api:${API_TAG:-latest}
     env_file: .env
     environment:
-      APP_ENV: prod
+      APP_ENV: ${APP_ENV:-prod}   # demo: fixed OTP (DEMO_OTP) and POST /auth/demo
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}?sslmode=disable
       MIGRATE_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       REDIS_ADDR: redis:6379

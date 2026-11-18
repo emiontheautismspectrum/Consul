@@ -24,5 +24,5 @@ filter       = finadvisor-nginx-limit
 backend      = systemd
 port         = http,https
 findtime  = 1m
-maxretry  = 20
+maxretry  = 60   # a ban hits the whole venue NAT, so only sustained abuse
 banaction = nftables-allports[table=f2b-docker, chain=f2b-web, chain_hook=prerouting, chain_priority=-160, blocktype=drop]

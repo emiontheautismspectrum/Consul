@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -129,12 +130,15 @@ func TestOTPSendLimitPerPhoneAndIP(t *testing.T) {
 	if err := o.Send(ctx, "+998901234567", "2.2.2.2"); !errors.Is(err, ErrOTPRateLimited) {
 		t.Errorf("4th code for the same phone from another IP: %v", err)
 	}
+	// Many people behind one venue IP can each get a code, up to otpSendLimitIP.
 	o = NewOTP(newMemStore(), &captureSender{}, "pep", "")
-	for i := 0; i < otpSendLimit; i++ {
-		o.Send(ctx, "+99890000000"+string(rune('0'+i)), "3.3.3.3")
+	for i := 0; i < otpSendLimitIP; i++ {
+		if err := o.Send(ctx, fmt.Sprintf("+9989000%05d", i), "3.3.3.3"); err != nil {
+			t.Fatalf("code %d from a shared IP: %v", i, err)
+		}
 	}
 	if err := o.Send(ctx, "+998909999999", "3.3.3.3"); !errors.Is(err, ErrOTPRateLimited) {
-		t.Errorf("4th code from the same IP: %v", err)
+		t.Errorf("code %d from the same IP: %v", otpSendLimitIP+1, err)
 	}
 }
 

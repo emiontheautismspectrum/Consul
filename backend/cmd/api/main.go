@@ -168,13 +168,15 @@ func run() error {
 
 	// Application rate limits (Redis). nginx in front limits per IP; these add per-user and
 	// per-route business limits shared by all API instances. Daily AI quotas live in the
-	// advisor and vision services.
+	// advisor and vision services. Per-IP limits are generous because a hackathon venue (or
+	// an office) puts everyone behind one NAT address; strict limits are per user, per
+	// phone (OTP) and per account (login lockout).
 	const minute = time.Minute
-	globalLimit := ratelimit.Rule{Name: "api", Limit: 120, Window: minute, Key: ratelimit.ByUserOrIP}
+	globalLimit := ratelimit.Rule{Name: "api", Limit: 300, Window: minute, Key: ratelimit.ByUserOrIP}
 	routeLimits := map[string]ratelimit.Rule{
-		"POST /auth/register":        {Name: "register", Limit: 10, Window: 60 * minute, Key: ratelimit.ByIP},
-		"POST /auth/login":           {Name: "login", Limit: 20, Window: 10 * minute, Key: ratelimit.ByIP},
-		"POST /auth/refresh":         {Name: "refresh", Limit: 30, Window: 10 * minute, Key: ratelimit.ByIP},
+		"POST /auth/register":        {Name: "register", Limit: 100, Window: 60 * minute, Key: ratelimit.ByIP},
+		"POST /auth/login":           {Name: "login", Limit: 100, Window: 10 * minute, Key: ratelimit.ByIP},
+		"POST /auth/refresh":         {Name: "refresh", Limit: 300, Window: 10 * minute, Key: ratelimit.ByIP},
 		"POST /advisor/generate":     {Name: "generate", Limit: 5, Window: 10 * minute, Key: ratelimit.ByUserOrIP},
 		"POST " + vision.Route:       {Name: "photo", Limit: 10, Window: minute, Key: ratelimit.ByUserOrIP},
 		"POST /calculator/tax":       {Name: "calc", Limit: 60, Window: minute, Key: ratelimit.ByUserOrIP},
