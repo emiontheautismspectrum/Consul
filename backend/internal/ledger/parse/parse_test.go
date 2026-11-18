@@ -77,6 +77,8 @@ func TestParseNonOps(t *testing.T) {
 		{"сколько я могу потратить?", "question", "spend", ""},
 		{"можно ли взять кредит", "question", "loan", ""},
 		{"кто мне должен?", "question", "debtors", ""},
+		{"kim menga qarz?", "question", "debtors", ""},
+		{"qarz olsam bo'ladimi?", "question", "loan", ""},
 		{"bank uchun hisobot", "report", "", ""},
 		{"отчёт для банка", "report", "", ""},
 		{"sotdim", "need_amount", "", "amount"},

@@ -220,7 +220,7 @@ var topics = []struct {
 }{
 	{"loan", []string{"kredit", "qarz olsam", "qarz olish", "кредит", "займ", "заём"}},
 	{"tax", []string{"soliq", "налог"}},
-	{"debtors", []string{"qarzdor", "nasiya", "kim qarz", "долж", "долг"}},
+	{"debtors", []string{"qarzdor", "nasiya", "qarz", "долж", "долг"}},
 	{"spend", []string{"sarflasam", "sarflay", "bo'sh pul", "ishlatsam", "потратить", "можно потратить", "свободн"}},
 	{"profit", []string{"foyda", "daromad", "прибыл", "заработ", "доход"}},
 	{"plan", []string{"reja", "biznes reja", "ikkinchi rasta", "kengaytir", "план", "расшир", "второй"}},

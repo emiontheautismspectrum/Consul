@@ -180,7 +180,7 @@ func (s *Service) answer(ctx context.Context, userID, lang, text, route, topic s
 			return template("daily_limit", Meta{})
 		}
 	}
-	reply, meta, err := s.agent(ctx, lang, text, route, sess)
+	reply, meta, err := s.agent(ctx, lang, text, route, topic, sess)
 	if err != nil {
 		reason := "llm_error"
 		switch {
@@ -213,7 +213,21 @@ type modelReply struct {
 	Topic   string   `json:"topic"`
 }
 
-func (s *Service) agent(parent context.Context, lang, text, route string, sess *session) (Reply, Meta, error) {
+// prefetch: tools whose result the topic certainly needs. Code runs them before the first
+// LLM call and sends the results with the question, so the model answers in one round trip
+// instead of two (the reasoning model needs ~3 s per call). The numbers are still tool
+// output and part of the grounding pool.
+var prefetch = map[string][]string{
+	"spend":   {"get_today"},
+	"profit":  {"get_today", "get_months"},
+	"tax":     {"get_today"},
+	"loan":    {"get_today", "safe_loan"},
+	"debtors": {"list_debtors", "get_today"},
+	"plan":    {"get_today", "get_months", "safe_loan"},
+	"general": {"get_today"},
+}
+
+func (s *Service) agent(parent context.Context, lang, text, route, topic string, sess *session) (Reply, Meta, error) {
 	ctx, cancel := context.WithTimeout(parent, s.deadline)
 	defer cancel()
 	sess.ctx = ctx
@@ -221,6 +235,13 @@ func (s *Service) agent(parent context.Context, lang, text, route string, sess *
 	user := text
 	if route != "" {
 		user = "[screen: " + truncate(route, 40) + "]\n" + text
+	}
+	var data strings.Builder
+	for _, name := range prefetch[topic] {
+		fmt.Fprintf(&data, "%s: %s\n", name, sess.exec(name, "{}"))
+	}
+	if data.Len() > 0 {
+		user += "\n\nDATA (tool results, already computed):\n" + data.String()
 	}
 	msgs := []llm.Message{{Role: "system", Content: s.prompts[lang]}, {Role: "user", Content: user}}
 	temp := 0.2
@@ -268,8 +289,10 @@ func (s *Service) agent(parent context.Context, lang, text, route string, sess *
 			a := sess.unmask(*r.Ask)
 			r.Ask = &a
 		}
+		seen := map[string]bool{}
 		for _, tr := range sess.trace {
-			if tr.Error == "" {
+			if tr.Error == "" && !seen[tr.Name] {
+				seen[tr.Name] = true
 				r.Work = append(r.Work, Work{true, s.tpls[lang].s("tools", tr.Name)})
 			}
 		}

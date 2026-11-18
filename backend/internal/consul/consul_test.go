@@ -135,7 +135,7 @@ func TestAgentToolLoopIsGrounded(t *testing.T) {
 	if len(r.Actions) != 1 || r.Actions[0].Href != "/app/hisob" {
 		t.Errorf("external link must be dropped: %+v", r.Actions)
 	}
-	if len(r.Work) != 1 || !r.Work[0].OK {
+	if len(r.Work) != 2 || !r.Work[0].OK { // get_today + safe_loan, no duplicates
 		t.Errorf("work = %+v", r.Work)
 	}
 	if !strings.Contains(llmc.seen[0][0].Content, "Consul") || !strings.Contains(llmc.seen[0][0].Content, "QAT'IY") {
@@ -263,5 +263,20 @@ func TestGrounding(t *testing.T) {
 		if len(unverified(Reply{Text: bad}, pool)) == 0 {
 			t.Errorf("%q passed but no tool produced it", bad)
 		}
+	}
+}
+
+func TestPrefetchAnswersInOneRoundTrip(t *testing.T) {
+	llmc := &script{replies: []llm.Message{
+		{Role: "assistant", Content: `{"text":"Hozir **4 200 000** so'm bemalol ishlatsa bo'ladi.","topic":"spend"}`},
+	}}
+	s, _ := newSvc(t, llmc)
+	r := ask(t, s, "qancha pul ishlatsam bo'ladi?")
+	if r.Fallback || len(llmc.seen) != 1 {
+		t.Fatalf("one LLM call expected, got %d: %+v", len(llmc.seen), r)
+	}
+	user := llmc.seen[0][1].Content
+	if !strings.Contains(user, "DATA") || !strings.Contains(user, "4200000") {
+		t.Errorf("prefetched tool data missing from the question: %s", user)
 	}
 }
