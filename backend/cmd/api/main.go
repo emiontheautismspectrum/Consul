@@ -138,7 +138,6 @@ func run() error {
 	// Contract-first stubs: in openapi.yaml, not implemented yet (501 not_implemented).
 	// Each work package removes its routes from this list.
 	for _, route := range []string{
-		"POST /ops/parse",
 		"POST /consul/ask", "POST /voice/stt", "POST /voice/tts",
 		"GET /palata/report", "GET /palata/report.csv",
 	} {

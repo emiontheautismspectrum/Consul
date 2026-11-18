@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"finadvisor/internal/infrastructure/httpx"
+	"finadvisor/internal/ledger/parse"
 )
 
 //go:embed locales
@@ -64,6 +65,7 @@ func NewHandler(repo *PGRepo, p TaxPolicy) *Handler {
 // Register mounts ledger routes; every one requires authentication.
 func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
 	mux.Handle("GET /ledger/today", reqAuth(http.HandlerFunc(h.today)))
+	mux.Handle("POST /ops/parse", reqAuth(http.HandlerFunc(h.parseText)))
 	mux.Handle("GET /ops", reqAuth(http.HandlerFunc(h.listOps)))
 	mux.Handle("POST /ops", reqAuth(http.HandlerFunc(h.createOp)))
 	mux.Handle("DELETE /ops/{id}", reqAuth(http.HandlerFunc(h.deleteOp)))
@@ -101,6 +103,16 @@ func truncRunes(s string, n int) string {
 // instead of reaching PostgreSQL as an invalid uuid (which would be a 500).
 func validID(id string) bool { return uuid.Validate(id) == nil }
 
+// pathID returns the {id} path value, or writes 404 "<what> not found" when it is not a UUID.
+func pathID(w http.ResponseWriter, r *http.Request, what string) (string, bool) {
+	id := r.PathValue("id")
+	if !validID(id) {
+		httpx.Error(w, http.StatusNotFound, "not_found", what+" not found")
+		return "", false
+	}
+	return id, true
+}
+
 // checkCounterparty validates a customer/supplier name before it is stored.
 func checkCounterparty(name string) error {
 	if n := len([]rune(name)); n > maxNameRunes {
@@ -132,6 +144,33 @@ func (h *Handler) today(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, Compute(st, h.now(), h.policy))
+}
+
+// parseText understands a typed or spoken phrase. It never writes: the frontend shows the
+// draft and calls POST /ops after the user confirms.
+func (h *Handler) parseText(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Text string `json:"text"`
+	}
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	text := strings.TrimSpace(in.Text)
+	if text == "" {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "text_required", "text", "text is empty")
+		return
+	}
+	if len([]rune(text)) > maxRawRunes {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "text_too_long", "text", fmt.Sprintf("at most %d characters", maxRawRunes))
+		return
+	}
+	known, err := h.repo.Counterparties(r.Context(), httpx.UserID(r.Context()))
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, parse.Parse(text, known))
 }
 
 type opInput struct {
@@ -337,8 +376,8 @@ func (h *Handler) createOp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteOp(w http.ResponseWriter, r *http.Request) {
-	if !validID(r.PathValue("id")) {
-		httpx.Error(w, http.StatusNotFound, "not_found", "operation not found")
+	opID, ok := pathID(w, r, "operation")
+	if !ok {
 		return
 	}
 	userID := httpx.UserID(r.Context())
@@ -347,7 +386,7 @@ func (h *Handler) deleteOp(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, r, err)
 		return
 	}
-	if err := h.repo.SoftDeleteOp(r.Context(), userID, r.PathValue("id")); errors.Is(err, ErrNotFound) {
+	if err := h.repo.SoftDeleteOp(r.Context(), userID, opID); errors.Is(err, ErrNotFound) {
 		httpx.Error(w, http.StatusNotFound, "not_found", "operation not found")
 		return
 	} else if err != nil {
@@ -446,7 +485,10 @@ func findDebtor(st State, now time.Time, id string) (Debtor, bool) {
 
 func (h *Handler) repaid(w http.ResponseWriter, r *http.Request) {
 	userID := httpx.UserID(r.Context())
-	cpID := r.PathValue("id")
+	cpID, ok := pathID(w, r, "debtor")
+	if !ok {
+		return
+	}
 	st, err := h.repo.LoadState(r.Context(), userID)
 	if err != nil {
 		httpx.InternalError(w, r, err)
@@ -516,12 +558,16 @@ func (h *Handler) repaid(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) reminder(w http.ResponseWriter, r *http.Request) {
 	userID := httpx.UserID(r.Context())
+	cpID, ok := pathID(w, r, "debtor")
+	if !ok {
+		return
+	}
 	st, err := h.repo.LoadState(r.Context(), userID)
 	if err != nil {
 		httpx.InternalError(w, r, err)
 		return
 	}
-	d, ok := findDebtor(st, h.now(), r.PathValue("id"))
+	d, ok := findDebtor(st, h.now(), cpID)
 	if !ok {
 		httpx.Error(w, http.StatusNotFound, "not_found", "debtor not found")
 		return
@@ -660,14 +706,14 @@ func (h *Handler) createObligation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateObligation(w http.ResponseWriter, r *http.Request) {
-	h.writeObligation(w, r, r.PathValue("id"))
+	id, ok := pathID(w, r, "obligation")
+	if !ok {
+		return
+	}
+	h.writeObligation(w, r, id)
 }
 
 func (h *Handler) writeObligation(w http.ResponseWriter, r *http.Request, id string) {
-	if id != "" && !validID(id) {
-		httpx.Error(w, http.StatusNotFound, "not_found", "obligation not found")
-		return
-	}
 	var in obligationInput
 	if err := httpx.Decode(r, &in); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
@@ -705,11 +751,11 @@ func (h *Handler) writeObligation(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (h *Handler) deleteObligation(w http.ResponseWriter, r *http.Request) {
-	if !validID(r.PathValue("id")) {
-		httpx.Error(w, http.StatusNotFound, "not_found", "obligation not found")
+	id, ok := pathID(w, r, "obligation")
+	if !ok {
 		return
 	}
-	err := h.repo.DeleteObligation(r.Context(), httpx.UserID(r.Context()), r.PathValue("id"))
+	err := h.repo.DeleteObligation(r.Context(), httpx.UserID(r.Context()), id)
 	if errors.Is(err, ErrNotFound) {
 		httpx.Error(w, http.StatusNotFound, "not_found", "obligation not found")
 		return

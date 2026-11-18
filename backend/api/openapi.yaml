@@ -755,12 +755,23 @@ components:
       required: [type, confirm]
       properties:
         type: {type: string, enum: [op, fix, rent, question, report, need_amount, need_kind, unknown]}
-        draft: {$ref: '#/components/schemas/OpInput'}
+        draft: {$ref: '#/components/schemas/Draft'}
         rent: {type: object, properties: {amount: {$ref: '#/components/schemas/Money'}, due_day: {type: integer}}}
         topic: {type: string, description: "For question: loan, tax, profit, debtors, spend, plan, …"}
         missing: {type: string, enum: [amount, kind], nullable: true}
         lang: {$ref: '#/components/schemas/Lang'}
         confirm: {type: boolean, description: "true when the amount is ≥ 1 000 000 000 — ask the user to confirm"}
+    Draft:
+      type: object
+      description: "An OpInput to show for confirmation, then send to POST /ops. kind is absent for need_kind, amount for need_amount."
+      properties:
+        kind: {$ref: '#/components/schemas/OpKind'}
+        amount: {$ref: '#/components/schemas/Money'}
+        method: {$ref: '#/components/schemas/Method'}
+        label: {type: string}
+        counterparty: {type: string}
+        source: {type: string, enum: [text, voice]}
+        raw_text: {type: string}
     Debtor:
       type: object
       properties:

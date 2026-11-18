@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"finadvisor/internal/ledger/parse"
 )
 
 // ErrNotFound is returned when a row does not exist or belongs to another user.
@@ -351,4 +353,22 @@ func (r *PGRepo) UserLang(ctx context.Context, userID string) (string, error) {
 		return "", err
 	}
 	return lang, nil
+}
+
+// Counterparties lists the user's customers and suppliers for the phrase parser.
+func (r *PGRepo) Counterparties(ctx context.Context, userID string) ([]parse.Known, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT name, kind FROM counterparties WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []parse.Known
+	for rows.Next() {
+		var k parse.Known
+		if err := rows.Scan(&k.Name, &k.Kind); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
 }
