@@ -3,7 +3,8 @@
 banaction          = nftables-multiport
 banaction_allports = nftables-allports
 bantime            = 1h
-bantime.increment  = true      # repeat offenders: 1h → 2h → 4h … up to a week
+# Repeat offenders: 1h → 2h → 4h … up to a week.
+bantime.increment  = true
 bantime.maxtime    = 1w
 findtime           = 10m
 maxretry           = 5
@@ -23,6 +24,8 @@ enabled      = true
 filter       = finadvisor-nginx-limit
 backend      = systemd
 port         = http,https
+# A ban hits the whole venue NAT, so only sustained abuse is banned.
+# (fail2ban does not allow comments after a value.)
 findtime  = 1m
-maxretry  = 60   # a ban hits the whole venue NAT, so only sustained abuse
+maxretry  = 60
 banaction = nftables-allports[table=f2b-docker, chain=f2b-web, chain_hook=prerouting, chain_priority=-160, blocktype=drop]
