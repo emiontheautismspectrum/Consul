@@ -61,6 +61,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const remoteRef = useRef(false);
   const debtorIds = useRef<Record<string, string>>({});
   const serverChat = useRef<string | null>(null);
+  // Resolves once we know whether the user is logged in. Actions wait for it: otherwise a
+  // phrase typed in the first moments would be recorded only locally (the demo numbers on
+  // screen are the same as the server's, so nobody would notice).
+  const [gate] = useState(() => { let open = () => {}; const done = new Promise<void>(r => { open = r; }); return { done, open }; });
+
   const [ledger, setLedgerState] = useState<Ledger>(DEMO);
   const [storageReady, setStorageReady] = useState(false);
   const [route, setRoute] = useState("bugun");
@@ -132,9 +137,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (saved) setLedger(saved);
       }
       if (active) setStorageReady(true);
+      gate.open();
     })();
     return () => { active = false; };
-  }, [setLedger, refresh]);
+  }, [setLedger, refresh, gate]);
   const storageFailed = useRef(false);
   useEffect(() => {
     if (!storageReady || remoteRef.current) return; // the server owns the ledger in remote mode
@@ -326,14 +332,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setStatsRemote = (on: boolean) => { setStats(on); if (remoteRef.current) api.statsConsent(on).catch(fail); };
   const setBigTextRemote = (on: boolean) => { setBigText(on); if (remoteRef.current) api.patchMe({ prefs: { big_text: on } }).catch(fail); };
 
+  // Gated entry points (see `gate`): they run once the session check has finished.
+  const handleG = useCallback((q: string, o?: { voice?: boolean }) => { void gate.done.then(() => handle(q, o)); }, [gate, handle]);
+  const chatG = useCallback((q: string, o?: { voice?: boolean }) => { void gate.done.then(() => chat(q, o)); }, [gate, chat]);
+  const applyFixedG = useCallback((k: Parameters<typeof apply>[1], q: string, a: number) => { void gate.done.then(() => applyFixed(k, q, a)); }, [gate, applyFixed]);
+  const addOperationG = useCallback((i: OperationInput) => { void gate.done.then(() => addOperation(i)); }, [gate, addOperation]);
+  const repaidG = useCallback((n: string) => { void gate.done.then(() => repaid(n)); }, [gate, repaid]);
+  const forceActG = useCallback((q: string) => {
+    void gate.done.then(() => { if (remoteRef.current) handleRemote(q, true).catch(fail); else act(q, false, true); });
+  }, [gate, handleRemote, fail, act]);
+
   const value: Store = {
-    ledger, view: v, route, setRoute, toast, showToast, hideToast, sheet, openSheet, closeSheet, handle, applyFixed, addOperation, repaid, forceAct: (t) => { if (remoteRef.current) handleRemote(t, true).catch(fail); else act(t, false, true); },
-    setReserve,
+    ledger, view: v, route, setRoute, toast, showToast, hideToast, sheet, openSheet, closeSheet,
+    handle: handleG, applyFixed: applyFixedG, addOperation: addOperationG, repaid: repaidG, forceAct: forceActG,
+    setReserve: (r) => { void gate.done.then(() => setReserve(r)); },
     setMemory: (m) => setLedger(l => ({ ...l, memory: m })),
     chatId, chatTitle, loadChat: (h, q, r, t) => { setChatId(h.id); setChatTitle(`${h.title} · ${h.date}`); setMsgs([{ id: 1, role: "user", text: q }, { id: 2, role: "bot", reply: r }]); topic.current = t; },
-    msgs, chat, newChat: () => { setMsgs([]); setChatId(""); setChatTitle(""); topic.current = null; serverChat.current = null; }, history, setTopic: (t) => { topic.current = t; },
+    msgs, chat: chatG, newChat: () => { setMsgs([]); setChatId(""); setChatTitle(""); topic.current = null; serverChat.current = null; }, history, setTopic: (t) => { topic.current = t; },
     plan, setPlan, calcTab, setCalcTab, bigText, setBigText: setBigTextRemote, stats, setStats: setStatsRemote, ui, setUi,
-    remote, confirmDraft, confirmRent, lang,
+    remote, confirmDraft: (d) => { void gate.done.then(() => confirmDraft(d)); }, confirmRent: (r) => { void gate.done.then(() => confirmRent(r)); }, lang,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
