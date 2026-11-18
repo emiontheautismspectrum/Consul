@@ -136,3 +136,14 @@ func assertScheduleConsistent(t *testing.T, r LoanResult) {
 		t.Errorf("totals inconsistent: paid %.2f total %.2f interest %.2f", paid, r.TotalPaid, r.TotalInterest)
 	}
 }
+
+func TestLoanConsulReference(t *testing.T) {
+	// Plan reference: 34 000 000 at 24% for 24 months = 1 797 617 so'm per month.
+	res, err := Loan(LoanInput{Amount: 34_000_000, AnnualRate: 24, TermMonths: 24, Method: MethodAnnuity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Round(res.MonthlyPayment) != 1_797_617 {
+		t.Errorf("monthly payment = %.2f, want 1 797 617", res.MonthlyPayment)
+	}
+}

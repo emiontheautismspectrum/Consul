@@ -88,8 +88,9 @@ func TestTaxIEGets2026Rate(t *testing.T) {
 }
 
 func TestTaxAboveThresholdForcesGeneral(t *testing.T) {
+	// Above 12 000 BHM (4.944 bln) the general regime is mandatory.
 	res, err := Tax(mustRules(t), TaxInput{EntityType: EntityLLC, Regime: RegimeTurnover,
-		AnnualRevenue: 2_000_000_000, AnnualExpenses: 1_200_000_000, VATablePurchases: 1_000_000_000})
+		AnnualRevenue: 6_000_000_000, AnnualExpenses: 5_200_000_000, VATablePurchases: 5_000_000_000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +98,7 @@ func TestTaxAboveThresholdForcesGeneral(t *testing.T) {
 	if s.Regime != RegimeGeneral || res.Alternative != nil {
 		t.Fatalf("regime %s alt %v", s.Regime, res.Alternative)
 	}
-	if l := line(s, "vat"); l == nil || l.Amount != 120_000_000 { // 12% × (2bn − 1bn)
+	if l := line(s, "vat"); l == nil || l.Amount != 120_000_000 { // 12% × (6bn − 5bn)
 		t.Errorf("vat = %+v", l)
 	}
 	if l := line(s, "profit_tax"); l == nil || l.Amount != 120_000_000 { // 15% × 800M
@@ -139,5 +140,58 @@ func TestTaxValidation(t *testing.T) {
 		if _, err := Tax(r, in); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("Tax(%+v) err = %v", in, err)
 		}
+	}
+}
+
+func TestGeneralThresholdIs12000BHM(t *testing.T) {
+	if got := mustRules(t).GeneralThreshold(); got != 4_944_000_000 {
+		t.Errorf("general threshold = %.0f, want 4 944 000 000 (12 000 × 412 000)", got)
+	}
+}
+
+func TestTurnoverTaxBrackets(t *testing.T) {
+	r := mustRules(t)
+	cases := []struct {
+		name           string
+		entity         string
+		ytdBefore, rev float64
+		want           float64
+	}{
+		{"ie month below 1 bln", EntityIE, 0, 50_000_000, 500_000},
+		{"ie whole year 2 bln: 1% of 1 bln + 4% of 1 bln", EntityIE, 0, 2_000_000_000, 50_000_000},
+		{"ie month crossing 1 bln", EntityIE, 990_000_000, 20_000_000, 100_000 + 400_000},
+		{"ie month fully above 1 bln", EntityIE, 1_500_000_000, 10_000_000, 400_000},
+		{"self below 100 mln is exempt", EntitySelf, 0, 90_000_000, 0},
+		{"self crossing 100 mln", EntitySelf, 90_000_000, 20_000_000, 100_000},
+		{"llc flat 4%", EntityLLC, 3_000_000_000, 10_000_000, 400_000},
+		{"no revenue", EntityIE, 0, 0, 0},
+	}
+	for _, c := range cases {
+		if got := r.TurnoverTax(c.entity, c.ytdBefore, c.rev); !near(got, c.want, 0.001) {
+			t.Errorf("%s: got %.2f, want %.2f", c.name, got, c.want)
+		}
+	}
+}
+
+func TestIEAbove1BlnStaysOnTurnover(t *testing.T) {
+	res, err := Tax(mustRules(t), TaxInput{EntityType: EntityIE, AnnualRevenue: 2_000_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Selected.Regime != RegimeTurnover {
+		t.Fatalf("2 bln IE must stay on turnover tax, got %s", res.Selected.Regime)
+	}
+	if l := line(res.Selected, "turnover_tax"); l == nil || l.Amount != 50_000_000 || l.RatePct != 2.5 {
+		t.Errorf("line = %+v", l)
+	}
+}
+
+func TestSimplifiedVAT6(t *testing.T) {
+	res, err := Tax(mustRules(t), TaxInput{EntityType: EntityIE, Regime: RegimeVAT6, AnnualRevenue: 500_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := line(res.Selected, "vat6"); l == nil || l.Amount != 30_000_000 {
+		t.Errorf("vat6 line = %+v", l)
 	}
 }

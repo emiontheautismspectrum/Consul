@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math"
 )
 
 //go:embed rules/uz_tax_2026.json
@@ -20,15 +21,17 @@ type Source struct {
 }
 
 type TaxRules struct {
-	Version           string          `json:"version"`
-	EffectiveFrom     string          `json:"effective_from"`
-	Currency          string          `json:"currency"`
-	Verified          bool            `json:"verified"`
-	Note              string          `json:"note"`
-	TurnoverThreshold float64         `json:"turnover_threshold_annual"`
-	BHMMonthly        float64         `json:"bhm_monthly"` // БРВ, base calculation amount
-	Rates             map[string]Rate `json:"rates"`
-	Sources           []Source        `json:"sources"`
+	Version             string          `json:"version"`
+	EffectiveFrom       string          `json:"effective_from"`
+	Currency            string          `json:"currency"`
+	Verified            bool            `json:"verified"`
+	Note                string          `json:"note"`
+	IELowRateThreshold  float64         `json:"ie_low_rate_threshold_annual"` // IE/self-employed pay the low rate up to this turnover per year
+	SelfEmployedExempt  float64         `json:"self_employed_exempt_annual"`  // self-employed pay nothing up to this turnover
+	GeneralThresholdBHM float64         `json:"general_regime_threshold_bhm"` // general regime is mandatory above this many BHM
+	BHMMonthly          float64         `json:"bhm_monthly"`                  // base calculation amount (BHM)
+	Rates               map[string]Rate `json:"rates"`
+	Sources             []Source        `json:"sources"`
 }
 
 func (r TaxRules) rate(k string) Rate {
@@ -47,7 +50,7 @@ func LoadUZRules() (TaxRules, error) {
 		return r, fmt.Errorf("parse tax rules: %w", err)
 	}
 	for _, k := range []string{"turnover_tax_legal_entity_pct", "turnover_tax_individual_entrepreneur_pct",
-		"vat_pct", "profit_tax_pct", "personal_income_tax_pct", "social_tax_pct",
+		"turnover_tax_individual_entrepreneur_above_pct", "simplified_vat_pct", "vat_pct", "profit_tax_pct", "personal_income_tax_pct", "social_tax_pct",
 		"ie_social_tax_bhm_per_month", "dividend_tax_pct"} {
 		if _, ok := r.Rates[k]; !ok {
 			return r, fmt.Errorf("tax rules: missing %s", k)
@@ -57,11 +60,13 @@ func LoadUZRules() (TaxRules, error) {
 }
 
 const (
-	EntityLLC = "llc" // юрлицо (ООО/MChJ)
-	EntityIE  = "ie"  // индивидуальный предприниматель (ЯТТ)
+	EntityLLC  = "llc"  // юрлицо (ООО/MChJ)
+	EntityIE   = "ie"   // individual entrepreneur (YaTT)
+	EntitySelf = "self" // self-employed
 
 	RegimeAuto     = "auto"
 	RegimeTurnover = "turnover"
+	RegimeVAT6     = "vat6" // optional simplified VAT for trade, catering and services
 	RegimeGeneral  = "general"
 )
 
@@ -112,10 +117,10 @@ func Tax(rules TaxRules, in TaxInput) (TaxResult, error) {
 		in.Regime = RegimeAuto
 	}
 	switch {
-	case in.EntityType != EntityLLC && in.EntityType != EntityIE:
-		return TaxResult{}, invalid("entity_type must be %q or %q", EntityLLC, EntityIE)
-	case in.Regime != RegimeAuto && in.Regime != RegimeTurnover && in.Regime != RegimeGeneral:
-		return TaxResult{}, invalid("regime must be auto, turnover or general")
+	case in.EntityType != EntityLLC && in.EntityType != EntityIE && in.EntityType != EntitySelf:
+		return TaxResult{}, invalid("entity_type must be llc, ie or self")
+	case in.Regime != RegimeAuto && in.Regime != RegimeTurnover && in.Regime != RegimeGeneral && in.Regime != RegimeVAT6:
+		return TaxResult{}, invalid("regime must be auto, turnover, vat6 or general")
 	case in.AnnualRevenue < 0 || in.AnnualExpenses < 0 || in.AnnualPayroll < 0 || in.VATablePurchases < 0:
 		return TaxResult{}, invalid("amounts must be >= 0")
 	case in.Employees < 0:
@@ -123,7 +128,7 @@ func Tax(rules TaxRules, in TaxInput) (TaxResult, error) {
 	}
 
 	res := TaxResult{Input: in, RulesVersion: rules.Version, Sources: rules.Sources}
-	eligibleTurnover := in.AnnualRevenue <= rules.TurnoverThreshold
+	eligibleTurnover := in.AnnualRevenue <= rules.GeneralThreshold()
 	regime := in.Regime
 	if regime == RegimeAuto {
 		regime = RegimeGeneral
@@ -131,10 +136,10 @@ func Tax(rules TaxRules, in TaxInput) (TaxResult, error) {
 			regime = RegimeTurnover
 		}
 	}
-	if regime == RegimeTurnover && !eligibleTurnover {
+	if (regime == RegimeTurnover || regime == RegimeVAT6) && !eligibleTurnover {
 		res.Warnings = append(res.Warnings, fmt.Sprintf(
 			"revenue exceeds %.0f UZS: turnover tax is not available, general regime (VAT + profit tax) applied",
-			rules.TurnoverThreshold))
+			rules.GeneralThreshold()))
 		regime = RegimeGeneral
 	}
 
@@ -184,17 +189,23 @@ func calcRegime(rules TaxRules, in TaxInput, regime string) RegimeResult {
 	profitBeforeTax := in.AnnualRevenue - in.AnnualExpenses - in.AnnualPayroll - total
 	switch regime {
 	case RegimeTurnover:
-		key := "turnover_tax_legal_entity_pct"
-		if in.EntityType == EntityIE {
-			key = "turnover_tax_individual_entrepreneur_pct"
+		t := round2(rules.TurnoverTax(in.EntityType, 0, in.AnnualRevenue))
+		eff := 0.0
+		if in.AnnualRevenue > 0 {
+			eff = round2(t / in.AnnualRevenue * 100)
 		}
-		t := add("turnover_tax", "Налог с оборота / Aylanmadan olinadigan soliq", in.AnnualRevenue, rules.rate(key), "")
+		rr.Lines = append(rr.Lines, TaxLine{"turnover_tax", "Налог с оборота / Aylanmadan olinadigan soliq",
+			round2(in.AnnualRevenue), eff, t, rules.rate("turnover_tax_legal_entity_pct").Article, turnoverNote(rules, in.EntityType)})
+		total += t
+		profitBeforeTax -= t
+	case RegimeVAT6:
+		t := add("vat6", "Упрощённый НДС / Soddalashtirilgan QQS", in.AnnualRevenue, rules.rate("simplified_vat_pct"), "optional regime")
 		total += t
 		profitBeforeTax -= t
 	case RegimeGeneral:
 		vatBase := max(in.AnnualRevenue-in.VATablePurchases, 0)
 		total += add("vat", "НДС к уплате / QQS", vatBase, rules.rate("vat_pct"), "output VAT minus input VAT on purchases")
-		if p := max(profitBeforeTax, 0); in.EntityType == EntityIE {
+		if p := max(profitBeforeTax, 0); in.EntityType != EntityLLC {
 			t := add("ie_income_tax", "НДФЛ ИП / YaTT daromad solig'i", p, rules.rate("personal_income_tax_pct"), "")
 			total += t
 			profitBeforeTax -= t
@@ -210,4 +221,51 @@ func calcRegime(rules TaxRules, in TaxInput, regime string) RegimeResult {
 		rr.EffectiveRate = round2(rr.TotalTax / in.AnnualRevenue * 100)
 	}
 	return rr
+}
+
+// GeneralThreshold is the annual turnover above which the general regime is mandatory.
+func (r TaxRules) GeneralThreshold() float64 { return r.GeneralThresholdBHM * r.BHMMonthly }
+
+// TurnoverTax is the turnover tax on `revenue` earned after `ytdBefore` of the same year,
+// applying the brackets marginally. The ledger uses it for a month's tax (ytdBefore =
+// turnover of the earlier months), the calculator for a whole year (ytdBefore = 0).
+//
+//	llc:  flat legal-entity rate
+//	ie:   low rate up to IELowRateThreshold per year, the higher rate above
+//	self: nothing up to SelfEmployedExempt, then as ie
+func (r TaxRules) TurnoverTax(entity string, ytdBefore, revenue float64) float64 {
+	if revenue <= 0 {
+		return 0
+	}
+	if entity == EntityLLC {
+		return revenue * r.rate("turnover_tax_legal_entity_pct").Value / 100
+	}
+	type bracket struct{ upTo, pct float64 }
+	brackets := []bracket{
+		{r.IELowRateThreshold, r.rate("turnover_tax_individual_entrepreneur_pct").Value},
+		{math.Inf(1), r.rate("turnover_tax_individual_entrepreneur_above_pct").Value},
+	}
+	if entity == EntitySelf {
+		brackets = append([]bracket{{r.SelfEmployedExempt, 0}}, brackets...)
+	}
+	var tax float64
+	lo, hi := ytdBefore, ytdBefore+revenue
+	from := 0.0
+	for _, b := range brackets {
+		if a, z := max(lo, from), min(hi, b.upTo); z > a {
+			tax += (z - a) * b.pct / 100
+		}
+		from = b.upTo
+	}
+	return tax
+}
+
+func turnoverNote(r TaxRules, entity string) string {
+	switch entity {
+	case EntityIE:
+		return fmt.Sprintf("1%% up to %.0f per year, 4%% above", r.IELowRateThreshold)
+	case EntitySelf:
+		return fmt.Sprintf("exempt up to %.0f, then 1%% up to %.0f, 4%% above", r.SelfEmployedExempt, r.IELowRateThreshold)
+	}
+	return ""
 }

@@ -1,24 +1,67 @@
 {
-  "version": "uz-2026.1",
+  "version": "uz-2026.2",
   "effective_from": "2026-01-01",
   "currency": "UZS",
   "verified": false,
-  "note": "Ставки взяты из Налогового кодекса РУз и обзоров изменений на 2026 год. Перед использованием сверить с актуальной редакцией на lex.uz и с ментором Торгово-промышленной палаты. Номера статей — для навигации, проверить по действующей редакции.",
-  "turnover_threshold_annual": 1000000000,
+  "note": "Ставки по Налоговому кодексу РУз и изменениям на 2026 год. ИП и самозанятые: 1% с оборота до 1 млрд сум в год, выше — 4%; самозанятые освобождены до 100 млн; общий режим (НДС + налог на прибыль) обязателен после 12 000 БРВ оборота (с 1 июня 2026); упрощённый НДС 6% — по желанию для торговли, общепита и услуг. Перед питчем сверить с lex.uz и ментором Торгово-промышленной палаты, затем поставить verified: true. Номера статей — для навигации.",
+  "ie_low_rate_threshold_annual": 1000000000,
+  "self_employed_exempt_annual": 100000000,
+  "general_regime_threshold_bhm": 12000,
   "bhm_monthly": 412000,
   "rates": {
-    "turnover_tax_legal_entity_pct": {"value": 4, "article": "ст. 467 НК РУз"},
-    "turnover_tax_individual_entrepreneur_pct": {"value": 1, "article": "ст. 467 НК РУз (ред. с 01.01.2026)"},
-    "vat_pct": {"value": 12, "article": "ст. 258 НК РУз"},
-    "profit_tax_pct": {"value": 15, "article": "ст. 337 НК РУз"},
-    "personal_income_tax_pct": {"value": 12, "article": "ст. 381 НК РУз"},
-    "social_tax_pct": {"value": 12, "article": "ст. 405 НК РУз"},
-    "ie_social_tax_bhm_per_month": {"value": 1, "article": "ст. 405 НК РУз"},
-    "dividend_tax_pct": {"value": 5, "article": "ст. 337, 381 НК РУз"}
+    "turnover_tax_legal_entity_pct": {
+      "value": 4,
+      "article": "ст. 467 НК РУз"
+    },
+    "turnover_tax_individual_entrepreneur_pct": {
+      "value": 1,
+      "article": "ст. 467 НК РУз (ред. с 01.01.2026)"
+    },
+    "vat_pct": {
+      "value": 12,
+      "article": "ст. 258 НК РУз"
+    },
+    "profit_tax_pct": {
+      "value": 15,
+      "article": "ст. 337 НК РУз"
+    },
+    "personal_income_tax_pct": {
+      "value": 12,
+      "article": "ст. 381 НК РУз"
+    },
+    "social_tax_pct": {
+      "value": 12,
+      "article": "ст. 405 НК РУз"
+    },
+    "ie_social_tax_bhm_per_month": {
+      "value": 1,
+      "article": "ст. 405 НК РУз"
+    },
+    "dividend_tax_pct": {
+      "value": 5,
+      "article": "ст. 337, 381 НК РУз"
+    },
+    "turnover_tax_individual_entrepreneur_above_pct": {
+      "value": 4,
+      "article": "ст. 467 НК РУз (ред. с 01.01.2026)"
+    },
+    "simplified_vat_pct": {
+      "value": 6,
+      "article": "упрощённый НДС, ред. 2026 — уточнить статью"
+    }
   },
   "sources": [
-    {"title": "Налоговый кодекс Республики Узбекистан", "url": "https://lex.uz/docs/4674902"},
-    {"title": "Государственный налоговый комитет — soliq.uz", "url": "https://soliq.uz"},
-    {"title": "Калькуляторы и справочники ГНК", "url": "https://my.soliq.uz"}
+    {
+      "title": "Налоговый кодекс Республики Узбекистан",
+      "url": "https://lex.uz/docs/4674902"
+    },
+    {
+      "title": "Государственный налоговый комитет — soliq.uz",
+      "url": "https://soliq.uz"
+    },
+    {
+      "title": "Калькуляторы и справочники ГНК",
+      "url": "https://my.soliq.uz"
+    }
   ]
 }
