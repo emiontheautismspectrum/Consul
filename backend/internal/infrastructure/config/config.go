@@ -33,11 +33,11 @@ type Config struct {
 	AIVisionModel string // multimodal model for POST /api/v1/photo
 
 	// Demo mode (APP_ENV=demo): fixed OTP code for every phone and POST /auth/demo.
-	DemoOTP   string
-	DemoPhone string
-	AIMaxTokens   int
-	AIDailyLimit  int // generations per user per day
-	AITimeout     time.Duration
+	DemoOTP      string
+	DemoPhone    string
+	AIMaxTokens  int
+	AIDailyLimit int // generations per user per day
+	AITimeout    time.Duration
 }
 
 func Load() (Config, error) {
