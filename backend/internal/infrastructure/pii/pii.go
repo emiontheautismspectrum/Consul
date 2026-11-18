@@ -1,4 +1,5 @@
-package advisor
+// Package pii masks personal identifiers before text leaves for an LLM provider or is stored.
+package pii
 
 import (
 	"regexp"
@@ -24,8 +25,8 @@ var piiPatterns = []struct {
 // 9-digit amounts such as 500000000 look the same, so numbers ending in 00000 are kept.
 var localPhone = regexp.MustCompile(`\b(?:33|50|55|77|88|90|91|93|94|95|97|98|99)[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}\b`)
 
-// Anonymize masks personal identifiers in free text.
-func Anonymize(s string) string {
+// Mask masks personal identifiers in free text.
+func Mask(s string) string {
 	for _, p := range piiPatterns {
 		s = p.re.ReplaceAllString(s, p.mask)
 	}

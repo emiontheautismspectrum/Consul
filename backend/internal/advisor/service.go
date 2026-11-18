@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"finadvisor/internal/calculator"
+
+	"finadvisor/internal/infrastructure/pii"
 )
 
 var (
@@ -130,9 +132,9 @@ func (s *Service) Generate(ctx context.Context, userID string, in GenerateInput)
 	}
 
 	// Only anonymized data leaves the backend and is persisted.
-	in.Niche = Anonymize(in.Niche)
-	in.Description = Anonymize(in.Description)
-	in.Region = Anonymize(in.Region)
+	in.Niche = pii.Mask(in.Niche)
+	in.Description = pii.Mask(in.Description)
+	in.Region = pii.Mask(in.Region)
 	inputJSON, _ := json.Marshal(in)
 
 	prompt := "Build a business plan for this entrepreneur. Wizard data (amounts in UZS; 0 or missing means unknown — " +

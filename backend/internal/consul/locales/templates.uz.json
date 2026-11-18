@@ -1,0 +1,142 @@
+{
+  "kinds": {
+    "sale": "Sotuv",
+    "buy": "Xarid",
+    "exp": "Xarajat",
+    "sup": "Yetkazib beruvchiga to'lov",
+    "nas": "Nasiya",
+    "repaid": "Qarz qaytdi",
+    "fix": "Qoldiqni to'g'rilash",
+    "opening": "Boshlang'ich qoldiq"
+  },
+  "methods": {
+    "naqd": "naqd",
+    "karta": "karta",
+    "none": "—"
+  },
+  "op_confirm": {
+    "text": "{kind}: **{amount}** so'm ({method}). Yozib qo'yaymi?",
+    "yes": "Ha, yozish",
+    "edit": "O'zgartirish"
+  },
+  "op_confirm_big": {
+    "text": "{kind}: **{amount}** so'm — bu juda katta summa. To'g'rimi?"
+  },
+  "need_amount": {
+    "text": "Qancha summa? Masalan: 1,2 mln.",
+    "ask": "Summani yozing"
+  },
+  "need_kind": {
+    "text": "**{amount}** so'm — bu sotuvmi, xaridmi yoki xarajatmi?",
+    "sug": [
+      "sotuv",
+      "xarid",
+      "xarajat"
+    ]
+  },
+  "rent": {
+    "text": "Ijara: har oy {day}-sanada **{amount}** so'm. Saqlab qo'yaymi?",
+    "yes": "Ha, saqlash"
+  },
+  "spend": {
+    "text": "Hozir **{free}** so'mni bemalol ishlatsa bo'ladi.",
+    "title": "Bo'sh pul",
+    "cash": "Kassa va karta",
+    "obligations": "30 kunlik to'lovlar va soliq",
+    "reserve": "Zaxira",
+    "action": "Pul harakati"
+  },
+  "spend_negative": {
+    "text": "Diqqat: to'lovlar puldan **{gap}** so'mga ko'p. Yaqin to'lovlarni ko'rib chiqing."
+  },
+  "loan": {
+    "text": "{months} oyga **{amount}** so'm: oyiga ~**{payment}** — o'rtacha foydaning {share}%.",
+    "title": "Kredit · {months} oy · {rate}%",
+    "payment": "Oylik to'lov",
+    "overpay": "Ortiqcha to'lov",
+    "profit": "O'rtacha oylik foyda (3 oy)",
+    "action": "Stavka va muddatni o'zgartirish",
+    "ask": "Kredit nima uchun kerak?",
+    "work": "Kalkulyator: annuitet, {rate}% — namuna"
+  },
+  "loan_none": {
+    "text": "Oxirgi 3 oyda foyda yo'q — hozir kredit olish xavfli.",
+    "action": "Foydani ko'rish"
+  },
+  "tax": {
+    "text": "Bu oy soliq **{tax}** so'm, {due} gacha to'lanadi.",
+    "title": "Soliq",
+    "turnover": "Bu oy aylanma",
+    "rate": "Rejim",
+    "action": "Batafsil",
+    "work": "Soliq kodeksi qoidalari (lex.uz) bo'yicha"
+  },
+  "profit": {
+    "text": "Bu oy foyda **{profit}** so'm, marja {margin}%. O'tgan oy: {prev} so'm.",
+    "title": "Foyda",
+    "income": "Tushum",
+    "costs": "Xarid va xarajat",
+    "action": "Pul harakati"
+  },
+  "debtors": {
+    "text": "Sizdan {count} kishi qarz: jami **{total}** so'm. Eng uzog'i — {name}, {days} kun.",
+    "title": "Nasiya",
+    "action": "Qarzdorlar",
+    "none": "Hozir hech kim qarz emas."
+  },
+  "plan": {
+    "text": "O'rtacha oylik foyda **{profit3m}** so'm. Kengaytirish rejasini kalkulyatorda hisoblab ko'ramiz.",
+    "action": "Biznes reja"
+  },
+  "price": {
+    "text": "Narxni hisoblash uchun kalkulyatordan foydalaning: tannarx va ustama.",
+    "action": "Narx kalkulyatori"
+  },
+  "report": {
+    "text": "Bank uchun hisobot: oxirgi 3 oy tushum, xarajat, foyda va qarzlar.",
+    "action": "Hisobotni ochish"
+  },
+  "general": {
+    "text": "Men pul bo'yicha yordam beraman: qancha ishlatsa bo'ladi, kredit, soliq, nasiya.",
+    "sug": [
+      "qancha ishlatsam bo'ladi?",
+      "kredit olsam bo'ladimi?",
+      "soliq qancha?"
+    ]
+  },
+  "sug": {
+    "spend": [
+      "kredit olsam bo'ladimi?",
+      "kim qarz?"
+    ],
+    "loan": [
+      "ikkinchi rasta uchun",
+      "xarid uchun"
+    ],
+    "tax": [
+      "foyda qancha?"
+    ],
+    "profit": [
+      "qancha ishlatsam bo'ladi?"
+    ],
+    "debtors": [
+      "eslatma yuborish"
+    ],
+    "plan": [
+      "kredit olsam bo'ladimi?"
+    ],
+    "price": [
+      "foyda qancha?"
+    ]
+  },
+  "tools": {
+    "get_today": "Hisob: bugungi holat",
+    "get_months": "Hisob: oylar bo'yicha",
+    "list_debtors": "Hisob: qarzdorlar",
+    "calculate_loan": "Kalkulyator: kredit",
+    "calculate_tax": "Kalkulyator: soliq",
+    "calculate_breakeven": "Kalkulyator: zararsizlik",
+    "safe_loan": "Kalkulyator: xavfsiz kredit (foydaning 30%)",
+    "draft_operation": "Qoralama: hisobga yozilmagan"
+  }
+}

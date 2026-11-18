@@ -376,3 +376,20 @@ func Compute(st State, now time.Time, p TaxPolicy) Today {
 	}
 	return t
 }
+
+// Months returns the last n calendar months, oldest first; the current month is partial.
+func Months(st State, now time.Time, n int) []MonthSummary {
+	ms := months(st.Ops)
+	today := day(now)
+	out := make([]MonthSummary, 0, n)
+	for i := n - 1; i >= 0; i-- {
+		k := time.Date(today.Year(), today.Month()-time.Month(i), 1, 0, 0, 0, 0, Tashkent).Format("2006-01")
+		m := ms[k]
+		if m == nil {
+			m = &monthAgg{}
+		}
+		out = append(out, MonthSummary{Month: k, Income: m.income, Buy: m.buy, Exp: m.exp,
+			Profit: m.profit(), Margin: pctOf(m.profit(), m.income), Partial: i == 0})
+	}
+	return out
+}

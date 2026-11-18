@@ -233,3 +233,15 @@ func TestDemoSeedReproducesReference(t *testing.T) {
 		t.Errorf("demo debtors = %+v", ds)
 	}
 }
+
+func TestMonths(t *testing.T) {
+	ms := Months(demo().State, demoNow, 4)
+	if len(ms) != 4 || ms[0].Month != "2026-08" || ms[3].Month != "2026-11" || !ms[3].Partial || ms[2].Partial {
+		t.Fatalf("months = %+v", ms)
+	}
+	for _, m := range ms {
+		if m.Profit != 6_000_000 {
+			t.Errorf("%s profit = %d, want 6 000 000", m.Month, m.Profit)
+		}
+	}
+}

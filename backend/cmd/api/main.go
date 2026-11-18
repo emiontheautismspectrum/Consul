@@ -16,6 +16,7 @@ import (
 	"finadvisor/internal/advisor"
 	"finadvisor/internal/auth"
 	"finadvisor/internal/calculator"
+	"finadvisor/internal/consul"
 	"finadvisor/internal/infrastructure/cache"
 	"finadvisor/internal/infrastructure/config"
 	"finadvisor/internal/infrastructure/db"
@@ -110,6 +111,14 @@ func run() error {
 	ledgerRepo := ledger.NewPGRepo(database)
 	ledgerH := ledger.NewHandler(ledgerRepo, ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12})
 
+	// Consul chat: the same LLM gateway, ledger data through interfaces, templates as fallback.
+	consulSvc, err := consul.NewService(llmClient, engine, ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12},
+		ledgerRepo, consul.NewPGRepo(database), rdb)
+	if err != nil {
+		return err
+	}
+	consulH := consul.NewHandler(consulSvc, rdb)
+
 	// Phone login. Demo mode: every phone accepts DEMO_OTP and POST /auth/demo resets
 	// Dilnoza's account. Otherwise codes are random; LogSender stands in for an SMS provider.
 	var sender auth.SMSSender = auth.LogSender{}
@@ -133,12 +142,13 @@ func run() error {
 	ledgerH.Register(v1, authH.RequireAuth)
 	advisorH.Register(v1, authH.RequireAuth)
 	visionH.Register(v1, authH.RequireAuth)
+	consulH.Register(v1, authH.RequireAuth)
 	api.Register(v1)
 
 	// Contract-first stubs: in openapi.yaml, not implemented yet (501 not_implemented).
 	// Each work package removes its routes from this list.
 	for _, route := range []string{
-		"POST /consul/ask", "POST /voice/stt", "POST /voice/tts",
+		"POST /voice/stt", "POST /voice/tts",
 		"GET /palata/report", "GET /palata/report.csv",
 	} {
 		v1.HandleFunc(route, httpx.NotImplemented)
@@ -178,6 +188,7 @@ func run() error {
 		"POST /auth/refresh":         {Name: "refresh", Limit: 300, Window: 10 * minute, Key: ratelimit.ByIP},
 		"POST /advisor/generate":     {Name: "generate", Limit: 5, Window: 10 * minute, Key: ratelimit.ByUserOrIP},
 		"POST " + vision.Route:       {Name: "photo", Limit: 10, Window: minute, Key: ratelimit.ByUserOrIP},
+		"POST /consul/ask":           {Name: "consul", Limit: 30, Window: minute, Key: ratelimit.ByUserOrIP},
 		"POST /calculator/tax":       {Name: "calc", Limit: 60, Window: minute, Key: ratelimit.ByUserOrIP},
 		"POST /calculator/calculate": {Name: "calc", Limit: 60, Window: minute, Key: ratelimit.ByUserOrIP},
 		"POST /calculator/breakeven": {Name: "calc", Limit: 60, Window: minute, Key: ratelimit.ByUserOrIP},

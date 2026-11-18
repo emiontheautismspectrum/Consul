@@ -10,6 +10,8 @@ import (
 
 	"finadvisor/internal/calculator"
 	"finadvisor/internal/infrastructure/llm"
+
+	"finadvisor/internal/infrastructure/pii"
 )
 
 // scriptedLLM replays canned assistant messages and records what it was sent.
@@ -146,10 +148,10 @@ func TestAgentIterationLimit(t *testing.T) {
 	}
 }
 
-func TestAnonymize(t *testing.T) {
+func TestPIIMask(t *testing.T) {
 	in := "Звоните +998 90 123-45-67 или 901234567, почта ali@mail.uz, СТИР 301234567, " +
 		"ПИНФЛ 31234567890123, паспорт AA1234567, карта 8600 1234 5678 9012. Бюджет 500000000 сум."
-	out := Anonymize(in)
+	out := pii.Mask(in)
 	for _, leaked := range []string{"123-45-67", "901234567", "ali@mail.uz", "301234567", "31234567890123", "AA1234567", "8600 1234"} {
 		if strings.Contains(out, leaked) {
 			t.Errorf("leaked %q in %q", leaked, out)
