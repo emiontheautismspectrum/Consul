@@ -92,13 +92,13 @@ deploy:
 	        -C deploy nginx/templates \
 	  | $(SSH) 'tar -xz -C $(DEPLOY_PATH)'
 	$(SSH) 'set -e; cd $(DEPLOY_PATH); \
-	  ./init-env.sh $(DEPLOY_HOST) $(DOCKERHUB_USER); ./selfsigned.sh; \
+	  ./init-env.sh $(if $(DEPLOY_DOMAIN),$(DEPLOY_DOMAIN),$(DEPLOY_HOST)) $(DOCKERHUB_USER); ./selfsigned.sh; \
 	  sed -i "s|^API_TAG=.*|API_TAG=$(DEPLOY_TAG)|" .env; \
 	  [ -n "$(WEB_DEPLOY_TAG)" ] && { grep -q "^WEB_TAG=" .env && sed -i "s|^WEB_TAG=.*|WEB_TAG=$(WEB_DEPLOY_TAG)|" .env || echo "WEB_TAG=$(WEB_DEPLOY_TAG)" >> .env; }; \
 	  docker compose pull -q && docker compose up -d --remove-orphans && docker image prune -f >/dev/null; \
 	  docker compose exec -T nginx sh -c "/docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null && nginx -t -q && nginx -s reload"; \
 	  docker compose ps --format "table {{.Service}}\t{{.Status}}"'
-	@echo "deployed $(IMAGE):$(DEPLOY_TAG) → https://$(DEPLOY_HOST)"
+	@echo "deployed $(IMAGE):$(DEPLOY_TAG) → https://$(if $(DEPLOY_DOMAIN),$(DEPLOY_DOMAIN),$(DEPLOY_HOST))"
 
 vps-ps:
 	$(SSH) 'cd $(DEPLOY_PATH) && docker compose ps'

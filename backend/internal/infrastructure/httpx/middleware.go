@@ -100,8 +100,11 @@ func CORS(origins []string) Middleware {
 				h := w.Header()
 				h.Set("Access-Control-Allow-Origin", o)
 				h.Set("Access-Control-Allow-Credentials", "true")
-				h.Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept-Language, X-Request-ID")
+				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept-Language, Accept, Idempotency-Key, X-Request-ID")
+				// Rate-limit headers and the request id are readable by the frontend.
+				h.Set("Access-Control-Expose-Headers", "Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-Request-ID")
+				h.Set("Access-Control-Max-Age", "600")
 				h.Add("Vary", "Origin")
 			}
 			if r.Method == http.MethodOptions {

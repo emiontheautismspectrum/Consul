@@ -11,18 +11,23 @@ limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
 # Docker DNS: lets nginx start even when the optional frontend container is absent.
 resolver 127.0.0.11 valid=10s ipv6=off;
 
+# One canonical host: ${DOMAIN}. Requests for any other Host (the bare IP, www., scanners)
+# are redirected to it, so cookies and CORS only ever deal with one origin.
 server {
-    listen 80;
+    listen 80 default_server;
     server_name ${DOMAIN};
 
     location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / { return 301 https://$host$request_uri; }
+    location / { return 301 https://${DOMAIN}$request_uri; }
 }
 
 server {
-    listen 443 ssl;
+    listen 443 ssl default_server;
     http2 on;
     server_name ${DOMAIN};
+
+    # Other Host headers (the IP address) → the canonical domain.
+    if ($host != "${DOMAIN}") { return 301 https://${DOMAIN}$request_uri; }
 
     ssl_certificate     ${SSL_CERT};
     ssl_certificate_key ${SSL_KEY};

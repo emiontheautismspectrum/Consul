@@ -188,7 +188,9 @@ make deploy API_TAG=20261117-1922-30d2558   # откат на конкретну
 make vps-ps / make vps-logs
 ```
 
-При первом `make deploy` на сервере создаётся `.env` со случайными секретами (`deploy/vps/init-env.sh`) и self-signed сертификат для IP. Ключи LLM вписываются в `/home/rocky/finadvisor/.env` прямо на сервере. Сертификат Let's Encrypt выпускается скриптом `./letsencrypt.sh` (в `.env` на сервере нужны `DOMAIN` и `LETSENCRYPT_EMAIL`, проверка без выпуска — `--dry-run`). Если `DOMAIN` — IP-адрес, скрипт запрашивает IP-сертификат с профилем `shortlived` (действует около 6 дней, certbot продлевает его автоматически). Сейчас прод работает на `https://84.252.128.245` с валидным сертификатом Let's Encrypt. Когда появится домен, достаточно сменить `DOMAIN` и запустить скрипт ещё раз.
+При первом `make deploy` на сервере создаётся `.env` со случайными секретами (`deploy/vps/init-env.sh`) и self-signed сертификат для IP. Ключи LLM вписываются в `/home/rocky/finadvisor/.env` прямо на сервере. Сертификат Let's Encrypt выпускается скриптом `./letsencrypt.sh` (в `.env` на сервере нужны `DOMAIN` и `LETSENCRYPT_EMAIL`, проверка без выпуска — `--dry-run`). Если `DOMAIN` — IP-адрес, скрипт запрашивает IP-сертификат с профилем `shortlived` (действует около 6 дней, certbot продлевает его автоматически). Прод работает на **https://consul.env.uz** с сертификатом Let's Encrypt (90 дней, certbot продлевает сам). Запросы к другому Host (например, по IP) nginx перенаправляет на домен: один origin для cookies и CORS.
+
+CORS: `ALLOWED_ORIGINS=https://consul.env.uz` в `.env` на сервере. Фронтенд ходит в API через тот же origin (nginx), так что CORS нужен только для сторонних клиентов; список разрешённых origin строгий, `*` не используется (cookies с `credentials`).
 
 **Сервер:** Rocky Linux 10, 2 vCPU / 16 GB / 10 GB SSD. Под ресурсы настроено:
 - лимиты памяти на каждый сервис, Postgres с `shared_buffers=2GB` и `max_wal_size=512MB`, Redis до 512 MB;
