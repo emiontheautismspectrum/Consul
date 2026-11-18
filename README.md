@@ -1,4 +1,4 @@
-# FinAdvisor AI — ИИ-финансовый консультант для МСБ Узбекистана
+# Consul — ИИ-финансовый помощник для малого бизнеса Узбекистана
 
 Веб-сервис помогает предпринимателю составить бизнес-план, подобрать налоговый режим, рассчитать кредит и окупаемость. Работает на узбекском, русском и английском.
 
@@ -170,7 +170,7 @@ CI (`.github/workflows/ci.yml`): `gofmt`, `go vet`, `go test -race`, затем 
 
 ## Деплой на VPS
 
-На сервере лежат **только конфиги**: `docker-compose.yml`, шаблон nginx, `.env` и скрипты. Код и образы туда не копируются. Образ API публикуется на Docker Hub (`xsenos/finadvisor-api`), Postgres, Redis, PgBouncer и nginx — официальные образы.
+На сервере лежат **только конфиги**: `docker-compose.yml`, шаблон nginx, `.env` и скрипты. Код и образы туда не копируются. Образ API публикуется на Docker Hub (`xsenos/consul-api`; до переименования — `xsenos/finadvisor-api`, его теги остаются для отката), Postgres, Redis, PgBouncer и nginx — официальные образы.
 
 ```bash
 make publish        # lint + тесты → buildx (linux/amd64) → push :<дата-sha> и :latest

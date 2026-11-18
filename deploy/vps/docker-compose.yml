@@ -79,7 +79,7 @@ services:
 
   api:
     <<: *common
-    image: ${DOCKERHUB_USER}/finadvisor-api:${API_TAG:-latest}
+    image: ${DOCKERHUB_USER}/consul-api:${API_TAG:-latest}
     env_file: .env
     environment:
       APP_ENV: prod
@@ -97,7 +97,7 @@ services:
   # Enable with: docker compose --profile web up -d
   web:
     <<: *common
-    image: ${WEB_IMAGE:-finadvisor-web:latest}
+    image: ${WEB_IMAGE:-consul-web:latest}
     profiles: [web]
     environment:
       API_INTERNAL_URL: http://api:8080

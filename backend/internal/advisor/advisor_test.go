@@ -205,7 +205,7 @@ func TestServiceAnonymizesAndSaves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Lang != "ru" || p.Title != "Coffee point" || len(repo.saved) != 1 {
+	if p.Lang != "uz" || p.Title != "Coffee point" || len(repo.saved) != 1 {
 		t.Errorf("plan = %+v", p)
 	}
 	for _, m := range fake.calls[0] {

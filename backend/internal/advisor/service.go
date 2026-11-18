@@ -58,7 +58,7 @@ func (in *GenerateInput) normalize() error {
 	switch in.Lang {
 	case "uz", "ru", "en":
 	default:
-		in.Lang = "ru"
+		in.Lang = "uz"
 	}
 	if in.EntityType == "" {
 		in.EntityType = calculator.EntityLLC

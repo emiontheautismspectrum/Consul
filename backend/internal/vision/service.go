@@ -153,5 +153,5 @@ func normalizeLang(l string) string {
 	case "uz", "ru", "en":
 		return l
 	}
-	return "ru"
+	return "uz"
 }

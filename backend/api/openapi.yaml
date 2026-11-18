@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: FinAdvisor AI API
+  title: Consul API
   version: 1.0.0
   description: |
     AI financial advisor for SMEs in Uzbekistan. The LLM never calculates numbers itself:

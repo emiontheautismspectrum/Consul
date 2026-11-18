@@ -1,4 +1,4 @@
-# fail2ban jails for the FinAdvisor VPS (installed to /etc/fail2ban/jail.local)
+# fail2ban jails for the Consul VPS (installed to /etc/fail2ban/jail.local)
 [DEFAULT]
 banaction          = nftables-multiport
 banaction_allports = nftables-allports

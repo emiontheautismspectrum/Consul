@@ -1,4 +1,4 @@
-// Command api is the FinAdvisor modular monolith: auth, calculator, advisor and user modules
+// Command api is the Consul modular monolith: auth, calculator, advisor and user modules
 // wired together through interfaces and served by the standard net/http ServeMux.
 package main
 

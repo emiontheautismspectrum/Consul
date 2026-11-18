@@ -10,7 +10,7 @@ import (
 var spec []byte
 
 const swaggerHTML = `<!doctype html>
-<html><head><meta charset="utf-8"><title>FinAdvisor API</title>
+<html><head><meta charset="utf-8"><title>Consul API</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css"></head>
 <body><div id="ui"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js"></script>

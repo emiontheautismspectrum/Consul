@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 COMPOSE      := docker compose
 TAG          := $(shell date +%Y%m%d-%H%M)-$(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
-IMAGE         = $(DOCKERHUB_USER)/finadvisor-api
+IMAGE         = $(DOCKERHUB_USER)/consul-api
 SSH           = ssh $(DEPLOY_USER)@$(DEPLOY_HOST)
 -include .env
 export

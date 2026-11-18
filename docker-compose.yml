@@ -63,7 +63,7 @@ services:
   # Next.js frontend (separate repo). Enable with: docker compose --profile web up
   web:
     <<: *restart
-    image: ${WEB_IMAGE:-finadvisor-web:latest}
+    image: ${WEB_IMAGE:-consul-web:latest}
     profiles: [web]
     environment:
       API_INTERNAL_URL: http://api:8080
