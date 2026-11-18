@@ -10,6 +10,8 @@ Built for the Umummilliy AI Hackathon (Tashkent, 17–19 Nov 2026), Chamber of C
 
 > ⚠️ Informational only — **not tax, legal or credit advice.** Tax rules come from the Tax Code ([lex.uz](https://lex.uz/docs/4674902), [soliq.uz](https://soliq.uz)) and must be checked against the current edition.
 
+📊 [Pitch Day deck (PDF, Russian)](docs/Consul-Pitch-Day.pdf)
+
 ## What it does
 
 | Area | What you get |
