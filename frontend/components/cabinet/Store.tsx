@@ -186,7 +186,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return t("Yozdim: {op}. Sarflash mumkin: {a} → {b}.", { op: title, a: fmt(r.free_before), b: fmt(r.free_after) });
   }, [refresh, showToast, t, tp, fail]);
 
-  /** Text-to-speech for voice questions; silent when VoiceLab is unavailable. */
+  /** Text-to-speech for voice questions; silent when the voice provider is unavailable. */
   const speak = useCallback((text: string) => {
     api.tts(text, lang).then(r => r.blob()).then(b => { const a = new Audio(URL.createObjectURL(b)); void a.play().catch(() => {}); }).catch(() => {});
   }, [lang]);

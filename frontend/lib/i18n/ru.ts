@@ -339,7 +339,7 @@ export const RU: Record<string, string> = {
   "Davom ettirish:": "Продолжить:",
   "Demo bilan kirish": "Войти в демо",
   "Demo: namunaviy chek. Haqiqiy tanib olish — backend ulanganda.": "Демо: пример чека. Настоящее распознавание — после подключения бэкенда.",
-  "Demo: namunaviy ibora. Haqiqiy ovoz — VoiceLab orqali, oʻzbek va rus tilida.": "Демо: пример фразы. Настоящий голос — через VoiceLab, на узбекском и русском.",
+  "Demo: namunaviy ibora. Haqiqiy ovoz — ElevenLabs orqali, oʻzbek va rus tilida.": "Демо: пример фразы. Настоящий голос — через ElevenLabs, на узбекском и русском.",
   "Dilnoza": "Dilnoza",
   "Dilnoza Karimova": "Dilnoza Karimova",
   "Dilnoza · Chorsu": "Dilnoza · Чорсу",

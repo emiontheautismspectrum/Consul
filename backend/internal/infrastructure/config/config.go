@@ -34,11 +34,15 @@ type Config struct {
 	AIChatModel    string        // Consul chat; default AI_MODEL. A fast non-reasoning model answers in 1-3 s
 	AIChatDeadline time.Duration // a chat answer slower than this is replaced by a template
 
-	// VoiceLab (speech). Voice ids are optional: the first voice for the language is used.
-	VoiceLabURL     string
-	VoiceLabKey     string
-	VoiceLabVoiceUZ string
-	VoiceLabVoiceRU string
+	// ElevenLabs (speech): Scribe for speech-to-text, Eleven v3 for text-to-speech (it speaks
+	// Uzbek). Voice ids and models are optional; the defaults live in the speech package.
+	ElevenLabsURL      string
+	ElevenLabsKey      string
+	ElevenLabsTTSModel string
+	ElevenLabsSTTModel string
+	ElevenLabsVoiceUZ  string
+	ElevenLabsVoiceRU  string
+	ElevenLabsProxy    string // optional HTTP(S)/SOCKS5 proxy for the ElevenLabs calls
 
 	// Demo mode (APP_ENV=demo): fixed OTP code for every phone and POST /auth/demo.
 	DemoOTP      string
@@ -50,35 +54,38 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		Addr:             env("APP_ADDR", ":8080"),
-		Env:              env("APP_ENV", "dev"),
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		MigrateURL:       os.Getenv("MIGRATE_DATABASE_URL"),
-		RedisAddr:        env("REDIS_ADDR", "localhost:6379"),
-		RedisPass:        os.Getenv("REDIS_PASSWORD"),
-		Pepper:           os.Getenv("PEPPER"),
-		JWTAccessSecret:  os.Getenv("JWT_ACCESS_SECRET"),
-		JWTRefreshSecret: os.Getenv("JWT_REFRESH_SECRET"),
-		AccessTTL:        envDuration("JWT_ACCESS_TTL", 15*time.Minute),
-		RefreshTTL:       envDuration("JWT_REFRESH_TTL", 14*24*time.Hour),
-		CookieSecure:     envBool("COOKIE_SECURE", true),
-		CookieDomain:     os.Getenv("COOKIE_DOMAIN"),
-		AllowedOrigins:   splitCSV(env("ALLOWED_ORIGINS", "http://localhost:3000")),
-		AIBaseURL:        strings.TrimRight(os.Getenv("BASE_URL"), "/"),
-		AIAPIKey:         os.Getenv("AI_API_KEY"),
-		AIModel:          env("AI_MODEL", "deepseek-chat"),
-		AIVisionModel:    env("AI_VISION_MODEL", "kimi-k3"),
-		AIChatModel:      env("AI_CHAT_MODEL", env("AI_MODEL", "deepseek-chat")),
-		AIChatDeadline:   envDuration("AI_CHAT_DEADLINE", 20*time.Second),
-		DemoOTP:          os.Getenv("DEMO_OTP"),
-		VoiceLabURL:      env("VOICELAB_BASE_URL", "https://api.voicelab.uz"),
-		VoiceLabKey:      os.Getenv("VOICELAB_API_KEY"),
-		VoiceLabVoiceUZ:  os.Getenv("VOICELAB_VOICE_UZ"),
-		VoiceLabVoiceRU:  os.Getenv("VOICELAB_VOICE_RU"),
-		DemoPhone:        env("DEMO_PHONE", "+998901234567"),
-		AIMaxTokens:      envInt("AI_MAX_TOKENS", 16000), // reasoning models spend part of it on thinking
-		AIDailyLimit:     envInt("AI_DAILY_LIMIT", 20),
-		AITimeout:        envDuration("AI_TIMEOUT", 90*time.Second),
+		Addr:               env("APP_ADDR", ":8080"),
+		Env:                env("APP_ENV", "dev"),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		MigrateURL:         os.Getenv("MIGRATE_DATABASE_URL"),
+		RedisAddr:          env("REDIS_ADDR", "localhost:6379"),
+		RedisPass:          os.Getenv("REDIS_PASSWORD"),
+		Pepper:             os.Getenv("PEPPER"),
+		JWTAccessSecret:    os.Getenv("JWT_ACCESS_SECRET"),
+		JWTRefreshSecret:   os.Getenv("JWT_REFRESH_SECRET"),
+		AccessTTL:          envDuration("JWT_ACCESS_TTL", 15*time.Minute),
+		RefreshTTL:         envDuration("JWT_REFRESH_TTL", 14*24*time.Hour),
+		CookieSecure:       envBool("COOKIE_SECURE", true),
+		CookieDomain:       os.Getenv("COOKIE_DOMAIN"),
+		AllowedOrigins:     splitCSV(env("ALLOWED_ORIGINS", "http://localhost:3000")),
+		AIBaseURL:          strings.TrimRight(os.Getenv("BASE_URL"), "/"),
+		AIAPIKey:           os.Getenv("AI_API_KEY"),
+		AIModel:            env("AI_MODEL", "deepseek-chat"),
+		AIVisionModel:      env("AI_VISION_MODEL", "kimi-k3"),
+		AIChatModel:        env("AI_CHAT_MODEL", env("AI_MODEL", "deepseek-chat")),
+		AIChatDeadline:     envDuration("AI_CHAT_DEADLINE", 20*time.Second),
+		DemoOTP:            os.Getenv("DEMO_OTP"),
+		ElevenLabsURL:      env("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io"),
+		ElevenLabsKey:      os.Getenv("ELEVENLABS_API_KEY"),
+		ElevenLabsTTSModel: os.Getenv("ELEVENLABS_TTS_MODEL"),
+		ElevenLabsSTTModel: os.Getenv("ELEVENLABS_STT_MODEL"),
+		ElevenLabsVoiceUZ:  os.Getenv("ELEVENLABS_VOICE_UZ"),
+		ElevenLabsVoiceRU:  os.Getenv("ELEVENLABS_VOICE_RU"),
+		ElevenLabsProxy:    os.Getenv("ELEVENLABS_PROXY_URL"),
+		DemoPhone:          env("DEMO_PHONE", "+998901234567"),
+		AIMaxTokens:        envInt("AI_MAX_TOKENS", 16000), // reasoning models spend part of it on thinking
+		AIDailyLimit:       envInt("AI_DAILY_LIMIT", 20),
+		AITimeout:          envDuration("AI_TIMEOUT", 90*time.Second),
 	}
 	if c.MigrateURL == "" {
 		c.MigrateURL = c.DatabaseURL

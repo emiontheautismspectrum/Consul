@@ -22,7 +22,7 @@ tags:
   - {name: vision, description: Document photo recognition (multimodal LLM)}
   - {name: ledger, description: "Bookkeeping: operations, debtors, obligations, the Today screen"}
   - {name: consul, description: "Chat with Consul, grounded in the user's ledger"}
-  - {name: voice, description: Speech to text and text to speech (VoiceLab)}
+  - {name: voice, description: Speech to text and text to speech (ElevenLabs)}
   - {name: palata, description: Anonymous statistics for the Chamber of Commerce}
 security: [{cookieAuth: []}, {bearerAuth: []}]
 
@@ -430,7 +430,7 @@ paths:
   /voice/stt:
     post:
       tags: [voice]
-      summary: Speech to text (VoiceLab). Audio is never stored or logged
+      summary: Speech to text (ElevenLabs Scribe). Audio is never stored or logged
       requestBody:
         required: true
         content:
@@ -450,14 +450,14 @@ paths:
   /voice/tts:
     post:
       tags: [voice]
-      summary: Text to speech (VoiceLab), cached 24 h
+      summary: Text to speech (ElevenLabs Eleven v3), cached 24 h
       requestBody:
         required: true
         content:
           application/json:
             schema: {type: object, required: [text], properties: {text: {type: string, maxLength: 1000}, lang: {$ref: '#/components/schemas/Lang'}, speed: {type: number, minimum: 0.5, maximum: 2, default: 1}}}
       responses:
-        '200': {description: "24 kHz mono WAV (VoiceLab). Amounts are read as people say them (4,2 mln); markdown is stripped", content: {audio/wav: {schema: {type: string, format: binary}}}}
+        '200': {description: "MP3 44.1 kHz (ElevenLabs). Amounts are read as people say them (4,2 mln); markdown is stripped. `speed` is ignored by Eleven v3", content: {audio/mpeg: {schema: {type: string, format: binary}}}}
         '422': {description: text_invalid, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '429': {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '503': {description: voice_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}

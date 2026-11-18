@@ -15,7 +15,7 @@ export const SUG: Record<string, string[]> = {
   kredit: ["20 mln olsam?", "PDF tayyorla"], soliq: ["soliq qachon?", "1 mlrd dan oshsa?"], reja: ["ijara 2,5 mln boʻlsa?"], bozor: ["qoqi qayerda arzon?"],
   nasiya: ["Karimga 500 ming nasiya", "Bekzod toʻladi"], oq: ["roʻyxatdan qanday oʻtaman?"], learn: ["stavka nima?"], hisob: ["20 mln olsam?"],
 };
-/** Voice demo phrase per screen (until VoiceLab STT is connected). */
+/** Voice demo phrase per screen (until the voice provider is connected). */
 export const VOICE: Record<string, string> = {
   bugun: "Bugun 1 200 000 ga sotdim", ops: "Svetga 420 ming toʻladim", pul: "Qancha foyda qildim?", consul: "Kredit olsam boʻladimi?",
   kredit: "20 million olsam boʻladimi?", hisob: "20 million olsam boʻladimi?", soliq: "Soliq qachon?", nasiya: "Karimga 300 ming nasiya",

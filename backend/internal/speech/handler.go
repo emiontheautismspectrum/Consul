@@ -22,7 +22,7 @@ func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
 }
 
 // audioType sniffs the container (the browser's header is not trusted) and returns the
-// MIME type VoiceLab expects, or "" when unsupported.
+// MIME type the speech provider expects, or "" when unsupported.
 func audioType(b []byte) string {
 	if bytes.HasPrefix(b, []byte("fLaC")) {
 		return "audio/flac"

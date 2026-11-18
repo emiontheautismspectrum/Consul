@@ -148,12 +148,12 @@ function VoiceDemo() { const t = useT();
   return <div className="vc">
     <div className={"wv" + (done ? " st" : "")}>{Array.from({ length: 18 }, (_, k) => <i key={k} />)}</div>
     <p className="vl">{done ? t("Eshitdim:") : t("Tinglayapman…")}</p><p className="vt">{ph.slice(0, i)}</p>
-    <p className="note" style={{ textAlign: "center", margin: "4px 0 12px" }}>{t("Demo: namunaviy ibora. Haqiqiy ovoz — VoiceLab orqali, oʻzbek va rus tilida.")}</p>
+    <p className="note" style={{ textAlign: "center", margin: "4px 0 12px" }}>{t("Demo: namunaviy ibora. Haqiqiy ovoz — ElevenLabs orqali, oʻzbek va rus tilida.")}</p>
     {done && <div className="vb"><button className="btn sec" onClick={() => setI(0)}>{t("Qayta")}</button><button className="btn" onClick={() => { s.closeSheet(); s.handle(ph, { voice: true }); }}>{t("Yuborish")}</button></div>}
   </div>;
 }
 
-/** Real voice: records with the microphone, VoiceLab turns it into text, which goes the same way as typed text. */
+/** Real voice: records with the microphone, ElevenLabs turns it into text, which goes the same way as typed text. */
 function VoiceLive() { const t = useT();
   const s = useStore();
   const [st, setSt] = useState<"rec" | "wait" | "done" | "off">("rec");
@@ -172,7 +172,7 @@ function VoiceLive() { const t = useT();
         api.stt(new Blob(chunks.current, { type: r.mimeType }), s.lang).then(x => { setText(x.text); setSt("done"); }).catch(() => setSt("off"));
       };
       r.start(); rec.current = r;
-      setTimeout(() => { if (r.state === "recording") r.stop(); }, 55_000); // VoiceLab limit: 60 s
+      setTimeout(() => { if (r.state === "recording") r.stop(); }, 55_000); // audio limit: 60 s
     }).catch(() => setSt("off"));
     return () => { alive = false; if (rec.current?.state === "recording") rec.current.stop(); stream?.getTracks().forEach(x => x.stop()); };
   }, [s.lang]);

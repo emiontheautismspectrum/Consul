@@ -68,7 +68,7 @@ All numbers come from `lib/` math, never from a model. These parts are demo stan
 |---|---|
 | `lib/demo.ts` data, `StoreProvider` state | `GET /api/v1/me/ledger` and friends; keep `view()` math client-side or move it server-side |
 | `lib/parse.ts` + `lib/answer.ts` | LLM endpoint that returns the same `Intent` / `Reply` shapes; keep the deterministic math |
-| Voice sheet (typed sample phrase) | VoiceLab STT/TTS through a backend proxy (API key stays on the server) |
+| Voice sheet (typed sample phrase) | ElevenLabs STT/TTS through a backend proxy (API key stays on the server) |
 | Receipt sheet (sample receipt) | OCR endpoint returning line items |
 | SMS code `123456` | Real OTP |
 | `/palata` sample aggregates | Backend aggregates with k-anonymity ≥ 5 |

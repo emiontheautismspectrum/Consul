@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -45,7 +44,7 @@ type Service struct {
 	p       Provider
 	cache   Cache
 	limiter Limiter
-	units   map[string]map[string]string
+	units   map[string]map[string][]string
 }
 
 func NewService(p Provider, c Cache, l Limiter) (*Service, error) {
@@ -162,19 +161,38 @@ func (s *Service) SpeakableText(text, lang string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-func spokenAmount(n int64, u map[string]string) string {
-	short := func(v float64) string {
-		s := strconv.FormatFloat(math.Round(v*10)/10, 'f', 1, 64)
-		s = strings.TrimSuffix(s, ".0")
-		return strings.ReplaceAll(s, ".", ",")
+// form picks the word form for n ("1 миллион", "2 миллиона", "5 миллионов"); one-form
+// languages (Uzbek) use the same word after any number.
+func form(forms []string, n int64) string {
+	if len(forms) < 3 {
+		return forms[0]
 	}
 	switch {
-	case n >= 1_000_000_000:
-		return short(float64(n)/1e9) + " " + u["mlrd"]
-	case n >= 1_000_000:
-		return short(float64(n)/1e6) + " " + u["mln"]
-	case n >= 10_000:
-		return strconv.FormatInt(int64(math.Round(float64(n)/1000)), 10) + " " + u["ming"]
+	case n%100 >= 11 && n%100 <= 14, n%10 == 0, n%10 >= 5:
+		return forms[2]
+	case n%10 == 1:
+		return forms[0]
 	}
-	return strconv.FormatInt(n, 10)
+	return forms[1]
+}
+
+// spokenAmount says an amount in words the voice reads correctly: 4 200 000 → "4 million
+// 200 ming". Digits with commas ("4,2 mln") come out as nonsense ("four million two million").
+// Amounts of 10 000 and more are rounded to whole thousands.
+func spokenAmount(n int64, u map[string][]string) string {
+	if n < 10_000 {
+		return strconv.FormatInt(n, 10)
+	}
+	n = (n + 500) / 1000 * 1000
+	var parts []string
+	for _, c := range []struct {
+		key string
+		div int64
+	}{{"mlrd", 1_000_000_000}, {"mln", 1_000_000}, {"ming", 1000}} {
+		if q := n / c.div; q > 0 {
+			parts = append(parts, strconv.FormatInt(q, 10)+" "+form(u[c.key], q))
+			n %= c.div
+		}
+	}
+	return strings.Join(parts, " ")
 }

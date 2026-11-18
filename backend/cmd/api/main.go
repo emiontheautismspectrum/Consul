@@ -142,16 +142,17 @@ func run() error {
 
 	consulH := consul.NewHandler(consulSvc, rdb, consulRepo)
 
-	// Voice (VoiceLab). Without a key every call answers 503 voice_unavailable and the UI
+	// Voice (ElevenLabs). Without a key every call answers 503 voice_unavailable and the UI
 	// falls back to text input.
-	speechSvc, err := speech.NewService(speech.NewVoiceLab(cfg.VoiceLabURL, cfg.VoiceLabKey,
-		map[string]string{"uz": cfg.VoiceLabVoiceUZ, "ru": cfg.VoiceLabVoiceRU}), rdb, rdb)
+	speechSvc, err := speech.NewService(speech.NewElevenLabs(cfg.ElevenLabsURL, cfg.ElevenLabsKey, speech.Options{
+		ProxyURL: cfg.ElevenLabsProxy, TTSModel: cfg.ElevenLabsTTSModel, STTModel: cfg.ElevenLabsSTTModel,
+		Voices: map[string]string{"uz": cfg.ElevenLabsVoiceUZ, "ru": cfg.ElevenLabsVoiceRU}}), rdb, rdb)
 	if err != nil {
 		return err
 	}
 	speechH := speech.NewHandler(speechSvc)
-	if cfg.VoiceLabKey == "" {
-		slog.Warn("VOICELAB_API_KEY not set: /voice/* will return 503")
+	if cfg.ElevenLabsKey == "" {
+		slog.Warn("ELEVENLABS_API_KEY not set: /voice/* will return 503")
 	}
 
 	// Phone login. Demo mode: every phone accepts DEMO_OTP and POST /auth/demo resets
