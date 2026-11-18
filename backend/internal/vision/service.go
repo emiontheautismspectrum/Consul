@@ -112,7 +112,7 @@ func (s *Service) Recognize(ctx context.Context, userID string, img []byte, lang
 			{Role: "user", Parts: []llm.ContentPart{llm.TextPart(userPrompt), llm.ImagePart(mime, img)}},
 		},
 		JSONMode:    true,
-		MaxTokens:   8000,
+		MaxTokens:   4000, // enough for a long contract as JSON; longer outputs hit the gateway's 30 s limit
 		Temperature: &temp,
 	}
 	msg, _, err := s.llm.Chat(ctx, req)

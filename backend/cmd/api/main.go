@@ -101,7 +101,9 @@ func run() error {
 	advisorSvc := advisor.NewService(agent, cfg.AIModel, advisor.NewPGRepo(database), userRepo, rdb, cfg.AIDailyLimit)
 	advisorH := advisor.NewHandler(advisorSvc)
 	// Vision: same gateway, multimodal model; reuses consent and rate limiting.
-	visionClient := llm.NewHTTPClient(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIVisionModel, cfg.AITimeout)
+	// The gateway cuts upstream calls at ~30 s: a 40 s attempt and one retry keep the worst
+	// case near a minute instead of three long attempts.
+	visionClient := llm.NewHTTPClient(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIVisionModel, 40*time.Second).WithRetries(1)
 	visionH := vision.NewHandler(vision.NewService(visionClient, userRepo, rdb))
 	if cfg.AIBaseURL == "" || cfg.AIAPIKey == "" {
 		slog.Warn("BASE_URL / AI_API_KEY not set: /advisor/generate will return 503")

@@ -1,9 +1,15 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestMessageMarshalPlainAndMultimodal(t *testing.T) {
@@ -23,5 +29,19 @@ func TestExtractJSON(t *testing.T) {
 		if got := ExtractJSON(in); !strings.HasPrefix(got, "{") || !json.Valid([]byte(got)) {
 			t.Errorf("ExtractJSON(%q) = %q", in, got)
 		}
+	}
+}
+
+func TestRetriesAreBounded(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		http.Error(w, "<html>bad gateway</html>", http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	c := NewHTTPClient(srv.URL, "k", "m", time.Second).WithRetries(1)
+	_, _, err := c.Chat(context.Background(), Request{Messages: []Message{{Role: "user", Content: "hi"}}})
+	if !errors.Is(err, ErrUpstream) || calls.Load() != 2 {
+		t.Errorf("err = %v, calls = %d, want ErrUpstream after 2 calls", err, calls.Load())
 	}
 }

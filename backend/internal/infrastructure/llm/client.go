@@ -119,6 +119,10 @@ func NewHTTPClient(baseURL, apiKey, model string, timeout time.Duration) *HTTPCl
 
 func (c *HTTPClient) Model() string { return c.model }
 
+// WithRetries sets how many times a failed call is retried (429/5xx/network). Each retry
+// costs a full attempt, so slow paths (vision) use fewer.
+func (c *HTTPClient) WithRetries(n int) *HTTPClient { c.retries = max(n, 0); return c }
+
 type apiRequest struct {
 	Model          string            `json:"model"`
 	Messages       []Message         `json:"messages"`
