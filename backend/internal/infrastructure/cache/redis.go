@@ -38,6 +38,8 @@ func (r *Redis) IsRevoked(ctx context.Context, jti string) (bool, error) {
 	return n > 0, err
 }
 
+func (r *Redis) Delete(ctx context.Context, key string) error { return r.c.Del(ctx, key).Err() }
+
 // GetJSON returns false when the key is absent.
 func (r *Redis) GetJSON(ctx context.Context, key string, dst any) (bool, error) {
 	b, err := r.c.Get(ctx, key).Bytes()

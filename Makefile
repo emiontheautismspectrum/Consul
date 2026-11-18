@@ -6,7 +6,7 @@ SSH           = ssh $(DEPLOY_USER)@$(DEPLOY_HOST)
 -include .env
 export
 
-.PHONY: up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host
+.PHONY: up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host demo-reset demo-reset-vps
 
 ## Local: one command to run everything (creates .env and a self-signed cert if missing)
 up: env certs
@@ -39,6 +39,13 @@ certs:
 
 smoke:
 	./scripts/smoke.sh $${URL:-https://localhost}
+
+## Reset Dilnoza's demo account to the reference ledger ("can spend" 4 200 000)
+demo-reset:
+	$(COMPOSE) exec -T api /api demo-reset
+
+demo-reset-vps:
+	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api demo-reset'
 
 psql:
 	$(COMPOSE) exec postgres psql -U $(POSTGRES_USER) $(POSTGRES_DB)

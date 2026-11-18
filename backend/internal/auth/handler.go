@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"math"
 	"net/http"
@@ -8,12 +9,35 @@ import (
 	"strings"
 
 	"finadvisor/internal/infrastructure/httpx"
+	"finadvisor/internal/infrastructure/ratelimit"
 )
 
 type Handler struct {
 	svc     *Service
 	jwt     *JWTIssuer
 	cookies CookieConfig
+
+	// Phone login (optional until configured).
+	otp     *OTP
+	phones  PhoneRepo
+	profile func(ctx context.Context, userID string) (any, error)
+
+	// Demo login: enabled only with APP_ENV=demo.
+	demoPhone string
+	demoReset func(ctx context.Context, userID string) error
+}
+
+// WithPhoneLogin enables POST /auth/otp/send and /auth/otp/verify. profile renders the
+// user returned after login (the user module's profile).
+func (h *Handler) WithPhoneLogin(o *OTP, phones PhoneRepo, profile func(context.Context, string) (any, error)) *Handler {
+	h.otp, h.phones, h.profile = o, phones, profile
+	return h
+}
+
+// WithDemo enables POST /auth/demo for the given phone; reset restores its reference data.
+func (h *Handler) WithDemo(phone string, reset func(context.Context, string) error) *Handler {
+	h.demoPhone, h.demoReset = phone, reset
+	return h
 }
 
 func NewHandler(svc *Service, j *JWTIssuer, c CookieConfig) *Handler {
@@ -25,6 +49,115 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/login", h.login)
 	mux.HandleFunc("POST /auth/refresh", h.refresh)
 	mux.HandleFunc("POST /auth/logout", h.logout)
+	mux.HandleFunc("POST /auth/otp/send", h.otpSend)
+	mux.HandleFunc("POST /auth/otp/verify", h.otpVerify)
+	mux.HandleFunc("POST /auth/demo", h.demo)
+}
+
+func (h *Handler) otpSend(w http.ResponseWriter, r *http.Request) {
+	if h.otp == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "otp_unavailable", "phone login is not configured")
+		return
+	}
+	var in struct {
+		Phone string `json:"phone"`
+	}
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	phone, err := NormalizePhone(in.Phone)
+	if err != nil {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "invalid_phone", "phone", "expected an Uzbek number: +998XXXXXXXXX")
+		return
+	}
+	switch err := h.otp.Send(r.Context(), phone, ratelimit.ClientIP(r)); {
+	case errors.Is(err, ErrOTPRateLimited):
+		httpx.Error(w, http.StatusTooManyRequests, "otp_rate_limited", err.Error())
+	case errors.Is(err, ErrOTPLocked):
+		httpx.Error(w, http.StatusTooManyRequests, "otp_locked", err.Error())
+	case err != nil:
+		httpx.InternalError(w, r, err)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) otpVerify(w http.ResponseWriter, r *http.Request) {
+	if h.otp == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "otp_unavailable", "phone login is not configured")
+		return
+	}
+	var in struct {
+		Phone string `json:"phone"`
+		Code  string `json:"code"`
+		Lang  string `json:"lang,omitempty"`
+	}
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	phone, err := NormalizePhone(in.Phone)
+	if err != nil {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "invalid_phone", "phone", "expected an Uzbek number: +998XXXXXXXXX")
+		return
+	}
+	switch err := h.otp.Verify(r.Context(), phone, strings.TrimSpace(in.Code)); {
+	case errors.Is(err, ErrOTPLocked):
+		httpx.Error(w, http.StatusTooManyRequests, "otp_locked", err.Error())
+		return
+	case errors.Is(err, ErrInvalidCode):
+		httpx.FieldError(w, http.StatusUnauthorized, "invalid_code", "code", err.Error())
+		return
+	case err != nil:
+		httpx.InternalError(w, r, err)
+		return
+	}
+	id, isNew, err := h.phones.FindOrCreateByPhone(r.Context(), phone, NormalizeLang(in.Lang))
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	h.loggedIn(w, r, id, map[string]any{"is_new": isNew})
+}
+
+// demo logs into the demo account and resets its data. 404 outside APP_ENV=demo, so the
+// route does not even reveal that it exists in production.
+func (h *Handler) demo(w http.ResponseWriter, r *http.Request) {
+	if h.demoReset == nil || h.phones == nil {
+		httpx.Error(w, http.StatusNotFound, "not_found", "route not found")
+		return
+	}
+	id, _, err := h.phones.FindOrCreateByPhone(r.Context(), h.demoPhone, "uz")
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	if err := h.demoReset(r.Context(), id); err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	h.loggedIn(w, r, id, nil)
+}
+
+// loggedIn issues cookies and answers {user: Profile, ...extra}.
+func (h *Handler) loggedIn(w http.ResponseWriter, r *http.Request, userID string, extra map[string]any) {
+	t, err := h.jwt.Issue(userID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	prof, err := h.profile(r.Context(), userID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	h.cookies.SetTokens(w, t)
+	out := map[string]any{"user": prof, "access_token": t.Access, "expires_in": int(h.jwt.accessTTL.Seconds())}
+	for k, v := range extra {
+		out[k] = v
+	}
+	httpx.JSON(w, http.StatusOK, out)
 }
 
 type credentials struct {

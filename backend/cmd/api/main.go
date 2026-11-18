@@ -38,6 +38,14 @@ func main() {
 		os.Exit(0)
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	// `api demo-reset` restores the demo account to the reference ledger (make demo-reset).
+	if len(os.Args) > 1 && os.Args[1] == "demo-reset" {
+		if err := demoReset(); err != nil {
+			slog.Error("demo-reset", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
@@ -76,6 +84,7 @@ func run() error {
 	authSvc := auth.NewService(auth.NewPGRepo(database), auth.NewHasher(cfg.Pepper), jwtIssuer, rdb).
 		WithAttemptGuard(rdb) // per-account login lockout
 	authH := auth.NewHandler(authSvc, jwtIssuer, auth.CookieConfig{Secure: cfg.CookieSecure, Domain: cfg.CookieDomain})
+	authRepo := auth.NewPGRepo(database)
 
 	// Calculator
 	engine := calculator.NewService(rules, rdb)
@@ -98,8 +107,22 @@ func run() error {
 	}
 
 	// Ledger: TaxPolicy comes from the calculator's rules file, one source of truth for rates.
-	ledgerH := ledger.NewHandler(ledger.NewPGRepo(database),
-		ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12})
+	ledgerRepo := ledger.NewPGRepo(database)
+	ledgerH := ledger.NewHandler(ledgerRepo, ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12})
+
+	// Phone login. Demo mode: every phone accepts DEMO_OTP and POST /auth/demo resets
+	// Dilnoza's account. Otherwise codes are random; LogSender stands in for an SMS provider.
+	var sender auth.SMSSender = auth.LogSender{}
+	fixedCode := ""
+	if cfg.Env == "demo" {
+		sender, fixedCode = auth.FixedSender{}, cfg.DemoOTP
+		authH.WithDemo(cfg.DemoPhone, func(ctx context.Context, id string) error {
+			return ledgerRepo.ResetDemo(ctx, id, time.Now())
+		})
+		slog.Warn("APP_ENV=demo: every phone logs in with DEMO_OTP, POST /auth/demo is enabled")
+	}
+	authH.WithPhoneLogin(auth.NewOTP(rdb, sender, cfg.Pepper, fixedCode), authRepo,
+		func(ctx context.Context, id string) (any, error) { return userRepo.Profile(ctx, id) })
 
 	// All routes live under /api/v1: modules register relative paths on v1, which is
 	// mounted once. A future v2 is another mux mounted next to it.
@@ -115,8 +138,6 @@ func run() error {
 	// Contract-first stubs: in openapi.yaml, not implemented yet (501 not_implemented).
 	// Each work package removes its routes from this list.
 	for _, route := range []string{
-		"POST /auth/otp/send", "POST /auth/otp/verify", "POST /auth/demo",
-		"PUT /me/business", "POST /me/consent/stats", "DELETE /me/consent/stats",
 		"POST /ops/parse",
 		"POST /consul/ask", "POST /voice/stt", "POST /voice/tts",
 		"GET /palata/report", "GET /palata/report.csv",
@@ -204,4 +225,29 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func demoReset() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if err := db.Migrate(ctx, cfg.MigrateURL, migrations.FS); err != nil {
+		return err
+	}
+	database, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	id, _, err := auth.NewPGRepo(database).FindOrCreateByPhone(ctx, cfg.DemoPhone, "uz")
+	if err != nil {
+		return err
+	}
+	if err := ledger.NewPGRepo(database).ResetDemo(ctx, id, time.Now()); err != nil {
+		return err
+	}
+	slog.Info("demo account reset", "user_id", id)
+	return nil
 }

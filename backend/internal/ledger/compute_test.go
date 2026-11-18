@@ -218,3 +218,18 @@ func TestNameKey(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoSeedReproducesReference(t *testing.T) {
+	want := View{Cash: 12_000_000, Naqd: 4_800_000, Karta: 7_200_000, Tax: 500_000, Obligations: 6_600_000,
+		Reserve: 1_200_000, Free: 4_200_000, Profit: 6_000_000, Margin: 12, OwedToMe: 1_700_000, DebtorCount: 3, Profit3M: 6_000_000}
+	// The hackathon days, at different hours: the seed must give the same numbers each time.
+	for _, now := range []time.Time{demoNow, at(2026, time.November, 17, 9), at(2026, time.November, 19, 23)} {
+		if v := Compute(DemoSeed(now), now, policy(t)).View; v != want {
+			t.Errorf("%s:\n got: %+v\nwant: %+v", now.Format(time.DateTime), v, want)
+		}
+	}
+	ds := Debtors(DemoSeed(demoNow), demoNow)
+	if len(ds) != 3 || ds[0].Name != "Bekzod" || ds[0].Days != 21 {
+		t.Errorf("demo debtors = %+v", ds)
+	}
+}

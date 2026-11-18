@@ -22,6 +22,12 @@ type Repo interface {
 	ByEmail(ctx context.Context, email string) (User, error)
 }
 
+// PhoneRepo is the phone-login part of the user store.
+type PhoneRepo interface {
+	// FindOrCreateByPhone returns the user id and whether the user was just created.
+	FindOrCreateByPhone(ctx context.Context, phone, lang string) (string, bool, error)
+}
+
 type PGRepo struct{ db *sql.DB }
 
 func NewPGRepo(db *sql.DB) *PGRepo { return &PGRepo{db: db} }
@@ -47,4 +53,16 @@ func (r *PGRepo) ByEmail(ctx context.Context, email string) (User, error) {
 		return u, ErrNotFound
 	}
 	return u, err
+}
+
+func (r *PGRepo) FindOrCreateByPhone(ctx context.Context, phone, lang string) (string, bool, error) {
+	var id string
+	var created bool
+	// xmax = 0 only for a freshly inserted row: tells "created" from "already existed"
+	// in one round trip, also under concurrent first logins.
+	err := r.db.QueryRowContext(ctx,
+		`INSERT INTO users (phone, lang) VALUES ($1, $2)
+		 ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET phone = EXCLUDED.phone
+		 RETURNING id, (xmax = 0)`, phone, lang).Scan(&id, &created)
+	return id, created, err
 }

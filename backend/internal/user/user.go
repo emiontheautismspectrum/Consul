@@ -4,22 +4,49 @@ package user
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"finadvisor/internal/infrastructure/httpx"
 )
 
 // ConsentVersion identifies the text of the consent the user accepted.
-const ConsentVersion = "2026-11"
+const (
+	ConsentVersion      = "2026-11"
+	StatsConsentVersion = "2026-11"
+)
+
+// Prefs are UI settings stored as JSON; unknown keys are rejected at the API.
+type Prefs struct {
+	BigText      *bool    `json:"big_text,omitempty"`
+	VoiceAnswers *bool    `json:"voice_answers,omitempty"`
+	VoiceSpeed   *float64 `json:"voice_speed,omitempty"`
+}
+
+type Business struct {
+	Trade   string `json:"trade"`
+	Sector  string `json:"sector"`
+	Market  string `json:"market"`
+	Status  string `json:"status"`
+	Regime  string `json:"regime"`
+	Reserve int64  `json:"reserve"`
+}
 
 type Profile struct {
 	ID             string     `json:"id"`
-	Email          string     `json:"email"`
+	Phone          *string    `json:"phone"`
+	Email          *string    `json:"email"`
+	Role           string     `json:"role"`
 	Lang           string     `json:"lang"`
+	Prefs          Prefs      `json:"prefs"`
 	ConsentAt      *time.Time `json:"consent_at"`
 	ConsentVersion *string    `json:"consent_version"`
+	StatsConsentAt *time.Time `json:"stats_consent_at"`
+	Business       *Business  `json:"business"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
@@ -30,7 +57,7 @@ type RecentPlan struct {
 }
 
 type Stats struct {
-	Email                string       `json:"email"`
+	Email                *string      `json:"email"`
 	TotalPlans           int          `json:"total_plans"`
 	TotalCalculations    int          `json:"total_calculations"`
 	LargeLoansCalculated int          `json:"large_loans_calculated"` // loans > 1 000 000 UZS
@@ -45,13 +72,82 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{db: db} }
 
 func (r *Repo) Profile(ctx context.Context, id string) (Profile, error) {
 	var p Profile
+	var prefs []byte
+	var trade, sector, market, status, regime sql.NullString
+	var reserve sql.NullInt64
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, email, lang, consent_at, consent_version, created_at FROM users WHERE id = $1`, id).
-		Scan(&p.ID, &p.Email, &p.Lang, &p.ConsentAt, &p.ConsentVersion, &p.CreatedAt)
+		`SELECT u.id, u.phone, u.email, u.role, u.lang, u.prefs, u.consent_at, u.consent_version,
+		        u.stats_consent_at, u.created_at,
+		        b.trade, b.sector, b.market, b.status, b.regime, b.reserve
+		   FROM users u LEFT JOIN businesses b ON b.user_id = u.id
+		  WHERE u.id = $1`, id).
+		Scan(&p.ID, &p.Phone, &p.Email, &p.Role, &p.Lang, &prefs, &p.ConsentAt, &p.ConsentVersion,
+			&p.StatsConsentAt, &p.CreatedAt, &trade, &sector, &market, &status, &regime, &reserve)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, ErrNotFound
 	}
-	return p, err
+	if err != nil {
+		return p, err
+	}
+	if len(prefs) > 0 {
+		_ = json.Unmarshal(prefs, &p.Prefs)
+	}
+	if sector.Valid {
+		p.Business = &Business{trade.String, sector.String, market.String, status.String, regime.String, reserve.Int64}
+	}
+	return p, nil
+}
+
+// PutBusiness creates or replaces the business profile; a status change is recorded in
+// business_status_history (the Chamber report counts switches to official status).
+func (r *Repo) PutBusiness(ctx context.Context, id string, b Business) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var old sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM businesses WHERE user_id = $1 FOR UPDATE`, id).Scan(&old); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO businesses (user_id, trade, sector, market, status, regime, reserve, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		 ON CONFLICT (user_id) DO UPDATE SET trade = EXCLUDED.trade, sector = EXCLUDED.sector,
+		   market = EXCLUDED.market, status = EXCLUDED.status, regime = EXCLUDED.regime,
+		   reserve = EXCLUDED.reserve, updated_at = now()`,
+		id, b.Trade, b.Sector, b.Market, b.Status, b.Regime, b.Reserve); err != nil {
+		return err
+	}
+	if !old.Valid || old.String != b.Status {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO business_status_history (user_id, old_status, new_status) VALUES ($1, $2, $3)`,
+			id, old, b.Status); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *Repo) SetStatsConsent(ctx context.Context, id string, on bool) error {
+	var err error
+	if on {
+		_, err = r.db.ExecContext(ctx, `UPDATE users SET stats_consent_at = now(), stats_consent_version = $2 WHERE id = $1`, id, StatsConsentVersion)
+	} else {
+		_, err = r.db.ExecContext(ctx, `UPDATE users SET stats_consent_at = NULL, stats_consent_version = NULL WHERE id = $1`, id)
+	}
+	return err
+}
+
+// MergePrefs updates only the keys present in p.
+func (r *Repo) MergePrefs(ctx context.Context, id string, p Prefs) error {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	// JSON goes as string: under PgBouncer's simple protocol []byte would be sent as bytea.
+	_, err = r.db.ExecContext(ctx, `UPDATE users SET prefs = prefs || $2::jsonb WHERE id = $1`, id, string(b))
+	return err
 }
 
 func (r *Repo) GiveConsent(ctx context.Context, id string) error {
@@ -144,6 +240,9 @@ func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
 	mux.Handle("POST /me/consent", reqAuth(http.HandlerFunc(h.consent)))
 	mux.Handle("DELETE /me/consent", reqAuth(http.HandlerFunc(h.withdraw)))
 	mux.Handle("GET /me/stats", reqAuth(http.HandlerFunc(h.stats)))
+	mux.Handle("PUT /me/business", reqAuth(http.HandlerFunc(h.putBusiness)))
+	mux.Handle("POST /me/consent/stats", reqAuth(http.HandlerFunc(h.statsConsent(true))))
+	mux.Handle("DELETE /me/consent/stats", reqAuth(http.HandlerFunc(h.statsConsent(false))))
 }
 
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
@@ -161,21 +260,88 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Lang string `json:"lang"`
+		Lang  *string `json:"lang"`
+		Prefs *Prefs  `json:"prefs"`
 	}
 	if err := httpx.Decode(r, &in); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if in.Lang != "uz" && in.Lang != "ru" && in.Lang != "en" {
-		httpx.Error(w, http.StatusUnprocessableEntity, "validation", "lang must be uz, ru or en")
+	id := httpx.UserID(r.Context())
+	if in.Lang != nil {
+		if l := *in.Lang; l != "uz" && l != "ru" && l != "en" {
+			httpx.FieldError(w, http.StatusUnprocessableEntity, "lang_invalid", "lang", "lang must be uz, ru or en")
+			return
+		}
+		if err := h.repo.SetLang(r.Context(), id, *in.Lang); err != nil {
+			httpx.InternalError(w, r, err)
+			return
+		}
+	}
+	if in.Prefs != nil {
+		if v := in.Prefs.VoiceSpeed; v != nil && (*v < 0.5 || *v > 2) {
+			httpx.FieldError(w, http.StatusUnprocessableEntity, "voice_speed_invalid", "prefs.voice_speed", "0.5..2")
+			return
+		}
+		if err := h.repo.MergePrefs(r.Context(), id, *in.Prefs); err != nil {
+			httpx.InternalError(w, r, err)
+			return
+		}
+	}
+	h.me(w, r)
+}
+
+var (
+	sectors  = map[string]bool{"dried_fruit": true, "food": true, "clothes": true, "services": true, "other": true}
+	markets  = map[string]bool{"chorsu": true, "oloy": true, "parkent": true, "quyliq": true, "other": true}
+	statuses = map[string]bool{"yatt": true, "oob": true, "mchj": true, "none": true}
+	regimes  = map[string]bool{"turnover": true, "vat6": true, "vat12": true}
+)
+
+func validateBusiness(b *Business) (code, field string) {
+	b.Trade = strings.TrimSpace(b.Trade)
+	switch {
+	case b.Trade == "" || utf8.RuneCountInString(b.Trade) > 200:
+		return "trade_invalid", "trade"
+	case !sectors[b.Sector]:
+		return "sector_invalid", "sector"
+	case !markets[b.Market]:
+		return "market_invalid", "market"
+	case !statuses[b.Status]:
+		return "status_invalid", "status"
+	case !regimes[b.Regime]:
+		return "regime_invalid", "regime"
+	case b.Reserve < 0 || b.Reserve > 10_000_000_000_000:
+		return "reserve_invalid", "reserve"
+	}
+	return "", ""
+}
+
+func (h *Handler) putBusiness(w http.ResponseWriter, r *http.Request) {
+	var b Business
+	if err := httpx.Decode(r, &b); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
-	if err := h.repo.SetLang(r.Context(), httpx.UserID(r.Context()), in.Lang); err != nil {
+	if code, field := validateBusiness(&b); code != "" {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, code, field, "invalid "+field)
+		return
+	}
+	if err := h.repo.PutBusiness(r.Context(), httpx.UserID(r.Context()), b); err != nil {
 		httpx.InternalError(w, r, err)
 		return
 	}
 	h.me(w, r)
+}
+
+func (h *Handler) statsConsent(on bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := h.repo.SetStatsConsent(r.Context(), httpx.UserID(r.Context()), on); err != nil {
+			httpx.InternalError(w, r, err)
+			return
+		}
+		h.me(w, r)
+	}
 }
 
 func (h *Handler) consent(w http.ResponseWriter, r *http.Request) {

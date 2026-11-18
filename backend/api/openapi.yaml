@@ -241,20 +241,21 @@ paths:
       responses:
         '204': {description: Code sent}
         '422': {description: invalid_phone, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-        '429': {description: otp_rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '429': {description: "otp_rate_limited (3 codes / 10 min per phone and per IP), otp_locked", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '503': {description: otp_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /auth/otp/verify:
     post:
       tags: [auth]
       security: []
       summary: Verify the code, log in (creates the user on first login)
       description: Sets access/refresh cookies. 3 wrong codes block the phone for 10 minutes.
-      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [phone, code], properties: {phone: {type: string}, code: {type: string, example: "123456"}}}}}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [phone, code], properties: {phone: {type: string}, code: {type: string, example: "123456"}, lang: {$ref: '#/components/schemas/Lang'}}}}}}
       responses:
         '200':
           description: Logged in
           content:
             application/json:
-              schema: {type: object, required: [user, is_new], properties: {user: {$ref: '#/components/schemas/Profile'}, is_new: {type: boolean}}}
+              schema: {type: object, required: [user, is_new], properties: {user: {$ref: '#/components/schemas/Profile'}, is_new: {type: boolean}, access_token: {type: string}, expires_in: {type: integer}}}
         '401': {description: invalid_code, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '422': {description: invalid_phone, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '429': {description: otp_locked, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}

@@ -31,6 +31,10 @@ type Config struct {
 	AIAPIKey      string
 	AIModel       string
 	AIVisionModel string // multimodal model for POST /api/v1/photo
+
+	// Demo mode (APP_ENV=demo): fixed OTP code for every phone and POST /auth/demo.
+	DemoOTP   string
+	DemoPhone string
 	AIMaxTokens   int
 	AIDailyLimit  int // generations per user per day
 	AITimeout     time.Duration
@@ -56,6 +60,8 @@ func Load() (Config, error) {
 		AIAPIKey:         os.Getenv("AI_API_KEY"),
 		AIModel:          env("AI_MODEL", "deepseek-chat"),
 		AIVisionModel:    env("AI_VISION_MODEL", "kimi-k3"),
+		DemoOTP:          os.Getenv("DEMO_OTP"),
+		DemoPhone:        env("DEMO_PHONE", "+998901234567"),
 		AIMaxTokens:      envInt("AI_MAX_TOKENS", 16000), // reasoning models spend part of it on thinking
 		AIDailyLimit:     envInt("AI_DAILY_LIMIT", 20),
 		AITimeout:        envDuration("AI_TIMEOUT", 90*time.Second),
@@ -71,6 +77,9 @@ func Load() (Config, error) {
 		if v == "" {
 			missing = append(missing, k)
 		}
+	}
+	if c.Env == "demo" && (len(c.DemoOTP) != 6 || strings.Trim(c.DemoOTP, "0123456789") != "") {
+		missing = append(missing, "DEMO_OTP (6 digits, required when APP_ENV=demo)")
 	}
 	if len(missing) > 0 {
 		return c, fmt.Errorf("missing required env: %s", strings.Join(missing, ", "))
