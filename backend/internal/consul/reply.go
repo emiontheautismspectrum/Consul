@@ -82,10 +82,12 @@ var (
 	allowedHref = map[string]bool{"/app": true, "/app/pul": true, "/app/ops": true, "/app/nasiya": true, "/app/consul": true,
 		"/app/kredit": true, "/app/soliq": true, "/app/reja": true, "/app/agar": true, "/app/hisob": true, "/app/oq": true,
 		"/app/men": true, "/kalkulyatorlar": true}
-	allowedCx  = map[string]bool{"kredit": true, "soliq": true, "foyda": true, "narx": true}
-	allowedRun = map[string]bool{"confirm_op": true, "edit_op": true, "add_rent": true, "remind": true, "bank_report": true}
-	topics     = map[string]bool{"loan": true, "tax": true, "profit": true, "debtors": true, "spend": true, "plan": true, "price": true, "general": true}
-	urlRe      = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`)
+	allowedCx = map[string]bool{"kredit": true, "soliq": true, "foyda": true, "narx": true}
+	// Names the frontend handles (components/cabinet/Reply.tsx ActionLink).
+	allowedRun = map[string]bool{"why": true, "bankReport": true, "planWizard": true, "planReport": true,
+		"confirm_op": true, "edit_op": true, "add_rent": true}
+	topics = map[string]bool{"loan": true, "tax": true, "profit": true, "debtors": true, "spend": true, "plan": true, "price": true, "general": true}
+	urlRe  = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`)
 )
 
 // sanitize enforces the allowlists and limits on a model reply.

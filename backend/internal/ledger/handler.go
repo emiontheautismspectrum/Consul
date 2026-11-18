@@ -339,11 +339,12 @@ func (h *Handler) createOp(w http.ResponseWriter, r *http.Request) {
 		if d, ok := findDebtor(st, h.now(), *op.CounterpartyID); ok {
 			owed = d.Owed
 		}
-		if op.Amount > owed {
-			httpx.FieldError(w, http.StatusUnprocessableEntity, "repaid_exceeds_debt", "amount",
-				fmt.Sprintf("the customer owes %d", owed))
+		// Same rule as the frontend: a repayment is capped at the debt; no debt → 422.
+		if owed <= 0 {
+			httpx.FieldError(w, http.StatusUnprocessableEntity, "no_debt", "counterparty", "this customer owes nothing")
 			return
 		}
+		op.Amount = min(op.Amount, owed)
 	}
 
 	op.ID = uuid.NewString() // before marshaling: the stored idempotent response must contain it
@@ -516,11 +517,7 @@ func (h *Handler) repaid(w http.ResponseWriter, r *http.Request) {
 		httpx.FieldError(w, http.StatusUnprocessableEntity, "amount_required", "amount", "amount must be positive")
 		return
 	}
-	if in.Amount > d.Owed {
-		httpx.FieldError(w, http.StatusUnprocessableEntity, "repaid_exceeds_debt", "amount",
-			fmt.Sprintf("the customer owes %d", d.Owed))
-		return
-	}
+	in.Amount = min(in.Amount, d.Owed) // capped at the debt, like the frontend
 	if in.Method == "" {
 		in.Method = MethodNaqd
 	}

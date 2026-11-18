@@ -2,11 +2,13 @@ SHELL := /bin/sh
 COMPOSE      := docker compose
 TAG          := $(shell date +%Y%m%d-%H%M)-$(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 IMAGE         = $(DOCKERHUB_USER)/consul-api
+WEB_IMAGE_HUB = $(DOCKERHUB_USER)/consul-web
 SSH           = ssh $(DEPLOY_USER)@$(DEPLOY_HOST)
 -include .env
 export
 
-.PHONY: up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host demo-reset demo-reset-vps palata-seed palata-seed-vps palata-refresh palata-refresh-vps
+
+.PHONY: publish-web up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host demo-reset demo-reset-vps palata-seed palata-seed-vps palata-refresh palata-refresh-vps
 
 ## Local: one command to run everything (creates .env and a self-signed cert if missing)
 up: env certs
@@ -70,11 +72,20 @@ publish: lint test
 	@echo "$(TAG)" > .last-tag
 	@echo "published $(IMAGE):$(TAG)"
 
+## Frontend: tests, typecheck, then the SSR image (Next.js standalone)
+publish-web:
+	@test -n "$(DOCKERHUB_USER)" || (echo "set DOCKERHUB_USER in .env" && exit 1)
+	cd frontend && npm ci --no-audit --no-fund && npm test && npm run typecheck
+	docker buildx build --platform linux/amd64 -t $(WEB_IMAGE_HUB):$(TAG) -t $(WEB_IMAGE_HUB):latest --push frontend
+	@echo "$(TAG)" > .last-web-tag
+	@echo "published $(WEB_IMAGE_HUB):$(TAG)"
+
 ## Production: ship ONLY config files to the VPS and roll out the published image.
 ## Usage: make publish deploy   (or `make deploy API_TAG=<tag>` to roll back)
 deploy:
 	@test -n "$(DEPLOY_HOST)" -a -n "$(DOCKERHUB_USER)" || (echo "set DEPLOY_HOST and DOCKERHUB_USER in .env" && exit 1)
 	$(eval DEPLOY_TAG := $(if $(filter-out latest,$(API_TAG)),$(API_TAG),$(shell cat .last-tag 2>/dev/null || echo latest)))
+	$(eval WEB_DEPLOY_TAG := $(shell cat .last-web-tag 2>/dev/null))
 	$(SSH) 'mkdir -p $(DEPLOY_PATH)'
 	tar -cz -C deploy/vps docker-compose.yml init-env.sh selfsigned.sh letsencrypt.sh \
 	        -C ../.. .env.example \
@@ -83,6 +94,7 @@ deploy:
 	$(SSH) 'set -e; cd $(DEPLOY_PATH); \
 	  ./init-env.sh $(DEPLOY_HOST) $(DOCKERHUB_USER); ./selfsigned.sh; \
 	  sed -i "s|^API_TAG=.*|API_TAG=$(DEPLOY_TAG)|" .env; \
+	  [ -n "$(WEB_DEPLOY_TAG)" ] && { grep -q "^WEB_TAG=" .env && sed -i "s|^WEB_TAG=.*|WEB_TAG=$(WEB_DEPLOY_TAG)|" .env || echo "WEB_TAG=$(WEB_DEPLOY_TAG)" >> .env; }; \
 	  docker compose pull -q && docker compose up -d --remove-orphans && docker image prune -f >/dev/null; \
 	  docker compose exec -T nginx sh -c "/docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null && nginx -t -q && nginx -s reload"; \
 	  docker compose ps --format "table {{.Service}}\t{{.Status}}"'

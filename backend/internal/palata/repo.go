@@ -142,7 +142,7 @@ func (r *Repo) Refresh(ctx context.Context, periodEnd time.Time) error {
 			continue
 		}
 		key := monthEnd.AddDate(0, 0, -1).Format("2006-01")
-		rows = append(rows, row{30, "trend", key, snap.All.N, map[string]any{"month": key, "unrecorded_pct": snap.CityPct, "n": snap.All.N}, snap.Synthetic})
+		rows = append(rows, row{30, "trend", key, snap.All.N, map[string]any{"month": key, "unrecorded_pct": snap.CityPct, "official_pct": snap.All.OfficialPct, "n": snap.All.N}, snap.Synthetic})
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)

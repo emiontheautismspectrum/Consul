@@ -134,6 +134,17 @@ func months(ops []Op) map[string]*monthAgg {
 	return out
 }
 
+func ytdBefore(ms map[string]*monthAgg, now time.Time) int64 {
+	n := now.In(Tashkent)
+	var v int64
+	for m := time.January; m < n.Month(); m++ {
+		if agg := ms[time.Date(n.Year(), m, 1, 0, 0, 0, 0, Tashkent).Format("2006-01")]; agg != nil {
+			v += agg.income
+		}
+	}
+	return v
+}
+
 // MonthTax is the tax for the current month of now.
 func MonthTax(st State, now time.Time, p TaxPolicy) int64 {
 	ms := months(st.Ops)
@@ -151,14 +162,7 @@ func MonthTax(st State, now time.Time, p TaxPolicy) int64 {
 	if entity == "" || p.Turnover == nil {
 		return 0
 	}
-	n := now.In(Tashkent)
-	var ytdBefore int64
-	for m := time.January; m < n.Month(); m++ {
-		if agg := ms[time.Date(n.Year(), m, 1, 0, 0, 0, 0, Tashkent).Format("2006-01")]; agg != nil {
-			ytdBefore += agg.income
-		}
-	}
-	return roundSom(p.Turnover(entity, float64(ytdBefore), float64(cur.income)))
+	return roundSom(p.Turnover(entity, float64(ytdBefore(ms, now)), float64(cur.income)))
 }
 
 // nextDue returns the next due date of an obligation on or after today.
@@ -181,9 +185,21 @@ func nextDue(ob Obligation, today time.Time) (time.Time, bool) {
 	return d, true
 }
 
-// remaining of a one-off supplier obligation after `sup` payments to that supplier.
-func remaining(ob Obligation, ops []Op) int64 {
+// remaining of an obligation after payments:
+//   - one-off supplier obligation: minus `sup` payments to that supplier since it was created;
+//   - monthly rent: minus `exp` ops labelled "ijara" in the current cycle (after the previous
+//     due date), so paid rent leaves the 30-day obligations (the frontend's apply() rule).
+func remaining(ob Obligation, ops []Op, nextDue time.Time) int64 {
 	left := ob.Amount
+	if ob.Kind == "rent" && ob.DueDay != nil {
+		cycleStart := nextDue.AddDate(0, -1, 0)
+		for _, o := range ops {
+			if o.Kind == KindExp && o.Label == "ijara" && o.OccurredAt.After(cycleStart) {
+				left -= o.Amount
+			}
+		}
+		return max(left, 0)
+	}
 	if ob.Kind != "supplier" || ob.Recurring || ob.CounterpartyID == nil {
 		return left
 	}
@@ -268,7 +284,7 @@ func Compute(st State, now time.Time, p TaxPolicy) Today {
 	var obligations int64
 	for _, ob := range st.Obligations {
 		due, ok := nextDue(ob, today)
-		left := remaining(ob, st.Ops)
+		left := remaining(ob, st.Ops, due)
 		if !ok || left <= 0 {
 			continue
 		}
@@ -331,7 +347,7 @@ func Compute(st State, now time.Time, p TaxPolicy) Today {
 	t.Month = MonthSummary{
 		Month: monthKey(now), Income: cur.income, Buy: cur.buy, Exp: cur.exp,
 		Profit: cur.profit(), Margin: pctOf(cur.profit(), cur.income),
-		PrevIncome: prev.income, PrevProfit: prev.profit(), Partial: true,
+		PrevIncome: prev.income, PrevProfit: prev.profit(), Partial: true, YTDBefore: ytdBefore(ms, now),
 	}
 
 	// Attention, most urgent first.

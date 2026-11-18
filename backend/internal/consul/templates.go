@@ -213,7 +213,7 @@ func (t *tpl) topicReply(topic string, f facts) Reply {
 		r.Actions = []Action{{Label: t.s("price", "action"), Href: "/app/hisob", Cx: "narx", Primary: true}}
 	case "report":
 		r.Text = t.s("report", "text")
-		r.Actions = []Action{{Label: t.s("report", "action"), Run: "bank_report", Primary: true}}
+		r.Actions = []Action{{Label: t.s("report", "action"), Run: "bankReport", Primary: true}}
 		r.Topic = "general"
 	default:
 		r.Topic = "general"

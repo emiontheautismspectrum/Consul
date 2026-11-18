@@ -1,0 +1,23 @@
+[
+  {
+    "id": "426b207e-b3ea-42ca-b479-356f735e22a8",
+    "name": "Bekzod",
+    "phone": null,
+    "owed": 500000,
+    "days": 21
+  },
+  {
+    "id": "e44f8ccf-bdf3-4d2b-b02c-7601e846e06d",
+    "name": "Karim",
+    "phone": null,
+    "owed": 500000,
+    "days": 14
+  },
+  {
+    "id": "42281b34-564a-4b10-8aea-cfc184d5d129",
+    "name": "Shoira opa",
+    "phone": null,
+    "owed": 700000,
+    "days": 3
+  }
+]

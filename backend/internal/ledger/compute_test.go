@@ -245,3 +245,31 @@ func TestMonths(t *testing.T) {
 		}
 	}
 }
+
+func TestPaidRentLeavesObligations(t *testing.T) {
+	f := demo()
+	f.Ops = append(f.Ops, Op{ID: "rent-paid", Kind: KindExp, Label: "ijara", Amount: 3_000_000, Method: MethodNaqd, OccurredAt: demoNow, CreatedAt: demoNow})
+	td := Compute(f.State, demoNow, policy(t))
+	for _, u := range td.Upcoming {
+		if u.Kind == "rent" {
+			t.Errorf("paid rent still upcoming: %+v", u)
+		}
+	}
+	// cash −3 000 000 and obligations −3 000 000: free unchanged, as in the frontend.
+	if td.View.Free != 4_200_000 || td.View.Obligations != 3_600_000 {
+		t.Errorf("free %d obligations %d, want 4 200 000 / 3 600 000", td.View.Free, td.View.Obligations)
+	}
+	// A rent payment from the previous cycle does not count.
+	f = demo()
+	f.Ops = append(f.Ops, Op{ID: "old", Kind: KindExp, Label: "ijara", Amount: 3_000_000, Method: MethodNaqd, OccurredAt: at(2026, time.November, 4, 10)})
+	if v := Compute(f.State, demoNow, policy(t)).View; v.Obligations != 6_600_000 {
+		t.Errorf("rent paid before 5 Nov must not cover the 5 Dec payment: %d", v.Obligations)
+	}
+}
+
+func TestYTDBefore(t *testing.T) {
+	m := Compute(demo().State, demoNow, policy(t)).Month
+	if m.YTDBefore != 90_000_000 { // Aug + Sep + Oct income (30 mln each)
+		t.Errorf("ytd_before = %d, want 90 000 000", m.YTDBefore)
+	}
+}

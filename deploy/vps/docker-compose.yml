@@ -93,15 +93,15 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
 
-  # Next.js frontend, published to Docker Hub by the frontend developer.
-  # Enable with: docker compose --profile web up -d
+  # Next.js frontend (SSR, standalone image from Docker Hub), served by nginx at /.
   web:
     <<: *common
-    image: ${WEB_IMAGE:-consul-web:latest}
-    profiles: [web]
-    environment:
-      API_INTERNAL_URL: http://api:8080
-    mem_limit: 1g
+    image: ${DOCKERHUB_USER}/consul-web:${WEB_TAG:-latest}
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/uz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      retries: 5
 
   nginx:
     <<: *common

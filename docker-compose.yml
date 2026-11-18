@@ -60,13 +60,11 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
 
-  # Next.js frontend (separate repo). Enable with: docker compose --profile web up
+  # Next.js frontend (SSR, standalone), served by nginx at /.
   web:
     <<: *restart
-    image: ${WEB_IMAGE:-consul-web:latest}
-    profiles: [web]
-    environment:
-      API_INTERNAL_URL: http://api:8080
+    build: ./frontend
+    image: consul-web:local
 
   nginx:
     <<: *restart

@@ -854,7 +854,7 @@ components:
             official_pct: {type: integer}
             switched_to_official: {type: integer}
             median_turnover: {$ref: '#/components/schemas/Money'}
-        trend: {type: array, items: {type: object, properties: {month: {type: string}, unrecorded_pct: {type: integer}, n: {type: integer}}}}
+        trend: {type: array, items: {type: object, properties: {month: {type: string}, unrecorded_pct: {type: integer}, official_pct: {type: integer}, n: {type: integer}}}}
         sectors: {type: array, items: {$ref: '#/components/schemas/PalataGroup'}}
         markets: {type: array, items: {$ref: '#/components/schemas/PalataGroup'}}
         survey: {type: object, properties: {n: {type: integer}, answers: {type: array, items: {type: object, properties: {answer: {type: string}, pct: {type: integer}}}}}}

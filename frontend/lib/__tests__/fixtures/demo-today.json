@@ -1,0 +1,53 @@
+{
+  "view": {
+    "cash": 12000000,
+    "naqd": 4800000,
+    "karta": 7200000,
+    "tax": 500000,
+    "obligations": 6600000,
+    "reserve": 1200000,
+    "free": 4200000,
+    "profit": 6000000,
+    "margin": 12,
+    "owed_to_me": 1700000,
+    "debtor_count": 3,
+    "profit_3m": 6000000
+  },
+  "upcoming": [
+    {
+      "kind": "rent",
+      "label": "ijara",
+      "amount": 3000000,
+      "due_date": "2026-12-05",
+      "days_left": 17
+    },
+    {
+      "kind": "supplier",
+      "label": "Akmal aka",
+      "amount": 3100000,
+      "due_date": "2026-12-10",
+      "days_left": 22
+    },
+    {
+      "kind": "tax",
+      "label": "tax",
+      "amount": 500000,
+      "due_date": "2026-12-15",
+      "days_left": 27
+    }
+  ],
+  "attention": [],
+  "forecast": [],
+  "month": {
+    "month": "2026-11",
+    "income": 50000000,
+    "buy": 32000000,
+    "exp": 12000000,
+    "profit": 6000000,
+    "margin": 12,
+    "prev_income": 30000000,
+    "prev_profit": 6000000,
+    "ytd_before": 90000000,
+    "partial": true
+  }
+}

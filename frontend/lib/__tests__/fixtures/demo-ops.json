@@ -1,0 +1,62 @@
+[
+  {
+    "id": "3767ac7b-f38d-40fa-b209-173df223d576",
+    "kind": "nas",
+    "amount": 700000,
+    "method": "none",
+    "label": "",
+    "counterparty_id": "42281b34-564a-4b10-8aea-cfc184d5d129",
+    "counterparty": "Shoira opa",
+    "fiscal": false,
+    "source": "seed",
+    "occurred_at": "2026-11-15T08:42:14.814316Z"
+  },
+  {
+    "id": "f6dd7e79-8dd6-40d1-9a44-852a9522d9f3",
+    "kind": "exp",
+    "amount": 12000000,
+    "method": "naqd",
+    "label": "",
+    "counterparty_id": null,
+    "counterparty": null,
+    "fiscal": false,
+    "source": "seed",
+    "occurred_at": "2026-11-12T05:00:00Z"
+  },
+  {
+    "id": "60d1c4b2-0fda-4d54-9812-5e63bac0828e",
+    "kind": "buy",
+    "amount": 32000000,
+    "method": "karta",
+    "label": "",
+    "counterparty_id": null,
+    "counterparty": null,
+    "fiscal": false,
+    "source": "seed",
+    "occurred_at": "2026-11-07T05:00:00Z"
+  },
+  {
+    "id": "51b71958-5099-41b6-a9d3-9a97792b4f0c",
+    "kind": "sale",
+    "amount": 38800000,
+    "method": "karta",
+    "label": "",
+    "counterparty_id": null,
+    "counterparty": null,
+    "fiscal": false,
+    "source": "seed",
+    "occurred_at": "2026-11-06T05:00:00Z"
+  },
+  {
+    "id": "c2cf0a8f-cb34-4775-a3fe-7dc90dda1ab8",
+    "kind": "nas",
+    "amount": 500000,
+    "method": "none",
+    "label": "",
+    "counterparty_id": "e44f8ccf-bdf3-4d2b-b02c-7601e846e06d",
+    "counterparty": "Karim",
+    "fiscal": false,
+    "source": "seed",
+    "occurred_at": "2026-11-04T08:42:14.814316Z"
+  }
+]

@@ -126,6 +126,7 @@ type MonthSummary struct {
 	Margin     int    `json:"margin"`
 	PrevIncome int64  `json:"prev_income"`
 	PrevProfit int64  `json:"prev_profit"`
+	YTDBefore  int64  `json:"ytd_before"` // turnover of the earlier months of this year (tax brackets)
 	Partial    bool   `json:"partial"`
 }
 
