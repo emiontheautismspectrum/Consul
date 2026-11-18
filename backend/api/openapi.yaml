@@ -437,6 +437,8 @@ paths:
       responses:
         '200': {description: Text, content: {application/json: {schema: {type: object, properties: {text: {type: string}, lang: {$ref: '#/components/schemas/Lang'}}}}}}
         '413': {description: audio_too_large, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '415': {description: audio_unsupported, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '429': {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '503': {description: voice_unavailable — show text input, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /voice/tts:
     post:
@@ -448,7 +450,9 @@ paths:
           application/json:
             schema: {type: object, required: [text], properties: {text: {type: string, maxLength: 1000}, lang: {$ref: '#/components/schemas/Lang'}, speed: {type: number, minimum: 0.5, maximum: 2, default: 1}}}
       responses:
-        '200': {description: Audio, content: {audio/mpeg: {schema: {type: string, format: binary}}}}
+        '200': {description: "24 kHz mono WAV (VoiceLab). Amounts are read as people say them (4,2 mln); markdown is stripped", content: {audio/wav: {schema: {type: string, format: binary}}}}
+        '422': {description: text_invalid, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '429': {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '503': {description: voice_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
 
   /palata/report:

@@ -32,6 +32,12 @@ type Config struct {
 	AIModel       string
 	AIVisionModel string // multimodal model for POST /api/v1/photo
 
+	// VoiceLab (speech). Voice ids are optional: the first voice for the language is used.
+	VoiceLabURL     string
+	VoiceLabKey     string
+	VoiceLabVoiceUZ string
+	VoiceLabVoiceRU string
+
 	// Demo mode (APP_ENV=demo): fixed OTP code for every phone and POST /auth/demo.
 	DemoOTP      string
 	DemoPhone    string
@@ -61,6 +67,10 @@ func Load() (Config, error) {
 		AIModel:          env("AI_MODEL", "deepseek-chat"),
 		AIVisionModel:    env("AI_VISION_MODEL", "kimi-k3"),
 		DemoOTP:          os.Getenv("DEMO_OTP"),
+		VoiceLabURL:      env("VOICELAB_BASE_URL", "https://api.voicelab.uz"),
+		VoiceLabKey:      os.Getenv("VOICELAB_API_KEY"),
+		VoiceLabVoiceUZ:  os.Getenv("VOICELAB_VOICE_UZ"),
+		VoiceLabVoiceRU:  os.Getenv("VOICELAB_VOICE_RU"),
 		DemoPhone:        env("DEMO_PHONE", "+998901234567"),
 		AIMaxTokens:      envInt("AI_MAX_TOKENS", 16000), // reasoning models spend part of it on thinking
 		AIDailyLimit:     envInt("AI_DAILY_LIMIT", 20),

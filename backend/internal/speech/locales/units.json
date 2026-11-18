@@ -1,0 +1,4 @@
+{
+  "uz": {"mln": "mln", "mlrd": "mlrd", "ming": "ming", "currency": "so'm"},
+  "ru": {"mln": "млн", "mlrd": "млрд", "ming": "тыс.", "currency": "сум"}
+}

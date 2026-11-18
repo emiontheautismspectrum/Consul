@@ -24,6 +24,7 @@ import (
 	"finadvisor/internal/infrastructure/llm"
 	"finadvisor/internal/infrastructure/ratelimit"
 	"finadvisor/internal/ledger"
+	"finadvisor/internal/speech"
 	"finadvisor/internal/user"
 	"finadvisor/internal/vision"
 	"finadvisor/migrations"
@@ -121,6 +122,18 @@ func run() error {
 	}
 	consulH := consul.NewHandler(consulSvc, rdb)
 
+	// Voice (VoiceLab). Without a key every call answers 503 voice_unavailable and the UI
+	// falls back to text input.
+	speechSvc, err := speech.NewService(speech.NewVoiceLab(cfg.VoiceLabURL, cfg.VoiceLabKey,
+		map[string]string{"uz": cfg.VoiceLabVoiceUZ, "ru": cfg.VoiceLabVoiceRU}), rdb, rdb)
+	if err != nil {
+		return err
+	}
+	speechH := speech.NewHandler(speechSvc)
+	if cfg.VoiceLabKey == "" {
+		slog.Warn("VOICELAB_API_KEY not set: /voice/* will return 503")
+	}
+
 	// Phone login. Demo mode: every phone accepts DEMO_OTP and POST /auth/demo resets
 	// Dilnoza's account. Otherwise codes are random; LogSender stands in for an SMS provider.
 	var sender auth.SMSSender = auth.LogSender{}
@@ -145,12 +158,12 @@ func run() error {
 	advisorH.Register(v1, authH.RequireAuth)
 	visionH.Register(v1, authH.RequireAuth)
 	consulH.Register(v1, authH.RequireAuth)
+	speechH.Register(v1, authH.RequireAuth)
 	api.Register(v1)
 
 	// Contract-first stubs: in openapi.yaml, not implemented yet (501 not_implemented).
 	// Each work package removes its routes from this list.
 	for _, route := range []string{
-		"POST /voice/stt", "POST /voice/tts",
 		"GET /palata/report", "GET /palata/report.csv",
 	} {
 		v1.HandleFunc(route, httpx.NotImplemented)
@@ -206,7 +219,7 @@ func run() error {
 
 	handler := httpx.Chain(mux,
 		httpx.WithRequestID, httpx.Recover, httpx.Logger,
-		httpx.CORS(cfg.AllowedOrigins), httpx.BodyLimit(1<<20, httpx.APIv1+vision.Route))
+		httpx.CORS(cfg.AllowedOrigins), httpx.BodyLimit(1<<20, httpx.APIv1+vision.Route, httpx.APIv1+speech.STTRoute))
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
