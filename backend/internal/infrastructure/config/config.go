@@ -27,10 +27,12 @@ type Config struct {
 
 	AllowedOrigins []string
 
-	AIBaseURL     string
-	AIAPIKey      string
-	AIModel       string
-	AIVisionModel string // multimodal model for POST /api/v1/photo
+	AIBaseURL      string
+	AIAPIKey       string
+	AIModel        string
+	AIVisionModel  string        // multimodal model for POST /api/v1/photo
+	AIChatModel    string        // Consul chat; default AI_MODEL. A fast non-reasoning model answers in 1-3 s
+	AIChatDeadline time.Duration // a chat answer slower than this is replaced by a template
 
 	// VoiceLab (speech). Voice ids are optional: the first voice for the language is used.
 	VoiceLabURL     string
@@ -66,6 +68,8 @@ func Load() (Config, error) {
 		AIAPIKey:         os.Getenv("AI_API_KEY"),
 		AIModel:          env("AI_MODEL", "deepseek-chat"),
 		AIVisionModel:    env("AI_VISION_MODEL", "kimi-k3"),
+		AIChatModel:      env("AI_CHAT_MODEL", env("AI_MODEL", "deepseek-chat")),
+		AIChatDeadline:   envDuration("AI_CHAT_DEADLINE", 20*time.Second),
 		DemoOTP:          os.Getenv("DEMO_OTP"),
 		VoiceLabURL:      env("VOICELAB_BASE_URL", "https://api.voicelab.uz"),
 		VoiceLabKey:      os.Getenv("VOICELAB_API_KEY"),

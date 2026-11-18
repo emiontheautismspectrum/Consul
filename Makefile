@@ -8,7 +8,7 @@ SSH           = ssh $(DEPLOY_USER)@$(DEPLOY_HOST)
 export
 
 
-.PHONY: publish-web up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host demo-reset demo-reset-vps palata-seed palata-seed-vps palata-refresh palata-refresh-vps
+.PHONY: publish-web up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host demo-reset demo-reset-vps palata-seed palata-seed-vps palata-refresh palata-refresh-vps eval-chat-vps
 
 ## Local: one command to run everything (creates .env and a self-signed cert if missing)
 up: env certs
@@ -61,6 +61,10 @@ palata-refresh:
 
 palata-refresh-vps:
 	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api palata-refresh'
+
+## Assistant quality check on the real model (50 questions). Pick a model: make eval-chat-vps MODEL=deepseek-chat
+eval-chat-vps:
+	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T $(if $(MODEL),-e AI_CHAT_MODEL=$(MODEL)) -e AI_CHAT_DEADLINE=$(or $(DEADLINE),20s) api /api eval-chat'
 
 psql:
 	$(COMPOSE) exec postgres psql -U $(POSTGRES_USER) $(POSTGRES_DB)

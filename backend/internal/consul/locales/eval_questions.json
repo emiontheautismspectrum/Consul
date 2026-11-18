@@ -1,0 +1,296 @@
+[
+ {
+  "q": "qancha pul ishlatsam bo'ladi?",
+  "topic": "spend",
+  "numbers": [
+   4200000
+  ]
+ },
+ {
+  "q": "hozir qancha bo'sh pul bor?",
+  "topic": "spend",
+  "numbers": [
+   4200000
+  ]
+ },
+ {
+  "q": "naqd va karta jami qancha?",
+  "numbers": [
+   12000000
+  ]
+ },
+ {
+  "q": "kredit olsam bo'ladimi?",
+  "topic": "loan",
+  "numbers": [
+   34000000
+  ]
+ },
+ {
+  "q": "34 mln kredit olsam oyiga qancha to'layman?",
+  "topic": "loan",
+  "numbers": [
+   1797617
+  ]
+ },
+ {
+  "q": "qancha kredit olsam xavfsiz?",
+  "topic": "loan",
+  "numbers": [
+   34000000
+  ]
+ },
+ {
+  "q": "soliq qancha?",
+  "topic": "tax",
+  "numbers": [
+   500000
+  ]
+ },
+ {
+  "q": "soliq qachon to'lanadi?",
+  "topic": "tax"
+ },
+ {
+  "q": "bu oy foyda qancha?",
+  "topic": "profit",
+  "numbers": [
+   6000000
+  ]
+ },
+ {
+  "q": "foyda marjasi qancha?",
+  "topic": "profit",
+  "numbers": [
+   12
+  ]
+ },
+ {
+  "q": "kim menga qarz?",
+  "topic": "debtors",
+  "numbers": [
+   1700000
+  ]
+ },
+ {
+  "q": "eng uzoq qarzdor kim?",
+  "topic": "debtors",
+  "numbers": [
+   21
+  ]
+ },
+ {
+  "q": "Bekzod qancha qarz?",
+  "numbers": [
+   500000
+  ]
+ },
+ {
+  "q": "stavka nima?"
+ },
+ {
+  "q": "marja nima?",
+  "numbers": [
+   36
+  ]
+ },
+ {
+  "q": "ustama bilan marja farqi nima?"
+ },
+ {
+  "q": "zaxira nima?"
+ },
+ {
+  "q": "nasiya nima?"
+ },
+ {
+  "q": "1 mlrd dan oshsa soliq qancha?",
+  "numbers": [
+   4
+  ],
+  "source": true
+ },
+ {
+  "q": "QQS nima?",
+  "numbers": [
+   12
+  ],
+  "source": true
+ },
+ {
+  "q": "oʻzini oʻzi band soliq toʻlaydimi?",
+  "numbers": [
+   100
+  ],
+  "source": true
+ },
+ {
+  "q": "garovsiz mikrokredit bormi?",
+  "numbers": [
+   200
+  ],
+  "source": true
+ },
+ {
+  "q": "salom"
+ },
+ {
+  "q": "assalomu alaykum, nima qila olasan?"
+ },
+ {
+  "q": "bugun havo qanday?"
+ },
+ {
+  "q": "ijaraga qancha to'lashim kerak?",
+  "numbers": [
+   3000000
+  ]
+ },
+ {
+  "q": "ta'minotchiga qachon to'layman?",
+  "numbers": [
+   3100000
+  ]
+ },
+ {
+  "q": "ikkinchi rasta ochsam bo'ladimi?"
+ },
+ {
+  "q": "bugun 1,2 mln sotdim",
+  "pending": true
+ },
+ {
+  "q": "Karimga 300 ming nasiya yozib qo'y",
+  "pending": true
+ },
+ {
+  "q": "сколько можно потратить?",
+  "topic": "spend",
+  "numbers": [
+   4200000
+  ]
+ },
+ {
+  "q": "можно взять кредит?",
+  "topic": "loan",
+  "numbers": [
+   34000000
+  ]
+ },
+ {
+  "q": "какой у меня налог?",
+  "topic": "tax",
+  "numbers": [
+   500000
+  ]
+ },
+ {
+  "q": "сколько я заработал в этом месяце?",
+  "topic": "profit",
+  "numbers": [
+   6000000
+  ]
+ },
+ {
+  "q": "кто мне должен?",
+  "topic": "debtors",
+  "numbers": [
+   1700000
+  ]
+ },
+ {
+  "q": "сколько мне должен Бекзод?",
+  "numbers": [
+   500000
+  ]
+ },
+ {
+  "q": "что такое маржа?",
+  "numbers": [
+   36
+  ]
+ },
+ {
+  "q": "что такое наценка?"
+ },
+ {
+  "q": "что такое НДС?",
+  "numbers": [
+   12
+  ],
+  "source": true
+ },
+ {
+  "q": "что будет если оборот больше 1 млрд?",
+  "numbers": [
+   4
+  ],
+  "source": true
+ },
+ {
+  "q": "самозанятым нужно платить налог?",
+  "numbers": [
+   100
+  ],
+  "source": true
+ },
+ {
+  "q": "есть ли микрокредит без залога?",
+  "numbers": [
+   200
+  ],
+  "source": true
+ },
+ {
+  "q": "привет"
+ },
+ {
+  "q": "что ты умеешь?"
+ },
+ {
+  "q": "какая сегодня погода?"
+ },
+ {
+  "q": "сколько платить за аренду?",
+  "numbers": [
+   3000000
+  ]
+ },
+ {
+  "q": "когда платить налог?"
+ },
+ {
+  "q": "продал на 2 млн по карте",
+  "pending": true
+ },
+ {
+  "q": "посоветуй, как увеличить прибыль"
+ },
+ {
+  "q": "хочу открыть второй прилавок, потянем?"
+ },
+ {
+  "q": "svetga qancha ketdi?",
+  "numbers": [
+   420000
+  ]
+ },
+ {
+  "q": "bu oy qancha tovar xarid qildim?",
+  "numbers": [
+   32000000
+  ]
+ },
+ {
+  "q": "сколько я потратил на свет?",
+  "numbers": [
+   420000
+  ]
+ },
+ {
+  "q": "сколько я закупил товара в этом месяце?",
+  "numbers": [
+   32000000
+  ]
+ }
+]

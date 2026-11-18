@@ -142,10 +142,14 @@ func mult(u string) float64 {
 }
 
 // numbersIn extracts the numbers a person reads in the text ("1,8 mln" = 1 800 000).
+// labelRe matches a letter followed by digits ("D1", "A4"): a label, not an amount.
+var labelRe = regexp.MustCompile(`\p{L}\d+`)
+
 func numbersIn(s string) []float64 {
 	var out []float64
-	for _, m := range numRe.FindAllStringSubmatch(strings.ToLower(s), -1) {
-		n := strings.NewReplacer(" ", "", " ", "").Replace(m[1])
+	// Labels are removed first: in "D1 500 000" the amount is 500 000, not 1 500 000.
+	for _, m := range numRe.FindAllStringSubmatch(labelRe.ReplaceAllString(strings.ToLower(s), " "), -1) {
+		n := strings.NewReplacer(" ", "", "\u00a0", "").Replace(m[1])
 		f, err := strconv.ParseFloat(strings.ReplaceAll(n, ",", "."), 64)
 		if err != nil {
 			continue

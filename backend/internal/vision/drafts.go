@@ -8,14 +8,31 @@ import (
 
 // DraftOp is an operation proposed from a document, for the user to confirm; nothing is
 // recorded until POST /ops. Same shape as ledger.OpInput.
+// LineItem is one position of a receipt; UnitPrice feeds the anonymous market medians.
+type LineItem struct {
+	Name      string  `json:"name"`
+	Qty       float64 `json:"qty"`
+	Unit      string  `json:"unit"`
+	UnitPrice int64   `json:"unit_price"`
+}
+
+// DraftItem is the item shape stored with the operation (read by the prices module).
+type DraftItem struct {
+	Name  string  `json:"name"`
+	Qty   float64 `json:"qty,omitempty"`
+	Unit  string  `json:"unit,omitempty"`
+	Price int64   `json:"price"`
+}
+
 type DraftOp struct {
-	Kind         string `json:"kind"`
-	Amount       int64  `json:"amount"`
-	Method       string `json:"method"`
-	Label        string `json:"label,omitempty"`
-	Counterparty string `json:"counterparty,omitempty"`
-	Fiscal       bool   `json:"fiscal"`
-	Source       string `json:"source"`
+	Kind         string      `json:"kind"`
+	Amount       int64       `json:"amount"`
+	Method       string      `json:"method"`
+	Label        string      `json:"label,omitempty"`
+	Counterparty string      `json:"counterparty,omitempty"`
+	Fiscal       bool        `json:"fiscal"`
+	Source       string      `json:"source"`
+	Items        []DraftItem `json:"items,omitempty"`
 }
 
 // Documents that mean "we bought goods or paid for something".
@@ -75,8 +92,16 @@ func BuildDrafts(r *Result) []DraftOp {
 	if rs := []rune(label); len(rs) > 60 {
 		label = string(rs[:60])
 	}
+	var items []DraftItem
+	for _, it := range r.Items {
+		name := strings.TrimSpace(it.Name)
+		if name == "" || it.UnitPrice <= 0 || it.UnitPrice > 10_000_000_000 || len(items) >= 30 {
+			continue
+		}
+		items = append(items, DraftItem{Name: name, Qty: it.Qty, Unit: strings.TrimSpace(it.Unit), Price: it.UnitPrice})
+	}
 	return []DraftOp{{
 		Kind: "buy", Amount: total, Method: method, Label: label,
-		Counterparty: fieldValue(r.Fields, supplierKeys), Fiscal: fiscalRe.MatchString(r.Text), Source: "photo",
+		Counterparty: fieldValue(r.Fields, supplierKeys), Fiscal: fiscalRe.MatchString(r.Text), Source: "photo", Items: items,
 	}}
 }

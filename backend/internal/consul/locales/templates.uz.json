@@ -97,7 +97,7 @@
     "action": "Hisobotni ochish"
   },
   "general": {
-    "text": "Men pul bo'yicha yordam beraman: qancha ishlatsa bo'ladi, kredit, soliq, nasiya.",
+    "text": "Hozir bemalol ishlatsa boʻladigan pul — **{free}** soʻm. Savdo yozing («1,2 mln sotdim»), kredit, soliq yoki nasiya haqida soʻrang — hisoblab beraman.",
     "sug": [
       "qancha ishlatsam bo'ladi?",
       "kredit olsam bo'ladimi?",
@@ -138,6 +138,17 @@
     "calculate_breakeven": "Kalkulyator: zararsizlik",
     "safe_loan": "Kalkulyator: xavfsiz kredit (foydaning 30%)",
     "draft_operation": "Qoralama: hisobga yozilmagan",
-    "remember_fact": "Eslab qoldim"
+    "remember_fact": "Eslab qoldim",
+    "query_ops": "Hisob: operatsiyalar qidiruvi",
+    "market_prices": "Bozor narxlari"
+  },
+  "kb": {
+    "check": "Qoida 2026-yil holatiga; aniq shartlarni soliq.uz da tekshiring.",
+    "source": "Manba",
+    "sug": [
+      "qancha ishlatsam bo'ladi?",
+      "kredit olsam bo'ladimi?",
+      "soliq qancha?"
+    ]
   }
 }

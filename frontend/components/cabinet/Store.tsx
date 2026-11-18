@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEMO } from "@/lib/demo";
+import { DEMO, USER, type Persona } from "@/lib/demo";
 import { apply, view, type Ledger, type View } from "@/lib/ledger";
 import { intent, norm } from "@/lib/parse";
 import { answer, type Reply, type Topic } from "@/lib/answer";
@@ -35,6 +35,8 @@ interface Store {
   calcTab: string; setCalcTab: (t: string) => void;
   bigText: boolean; setBigText: (b: boolean) => void;
   stats: boolean; setStats: (b: boolean) => void;
+  /** Who is signed in: the demo persona offline, the real profile from the server otherwise. */
+  persona: Persona;
   ui: UiHooks; setUi: (u: UiHooks) => void;
   /** true when numbers come from the server; false = local demo (not logged in or offline). */
   remote: boolean;
@@ -81,6 +83,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [calcTab, setCalcTab] = useState("kredit");
   const [bigText, setBigText] = useState(false);
   const [stats, setStats] = useState(true);
+  const [persona, setPersona] = useState<Persona>(USER);
   const [ui, setUi] = useState<UiHooks>({});
   const topic = useRef<Topic>(null);
   const ledgerRef = useRef(ledger);
@@ -143,6 +146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!active) return;
         remoteRef.current = true; setRemote(true);
         setBigText(!!me.prefs?.big_text); setStats(!!me.stats_consent_at);
+        setPersona({ name: "", full: me.phone || me.email || "", trade: me.business?.trade || "", place: me.business?.market && me.business.market !== "other" ? me.business.market : "", status: (me.business?.status || "").toUpperCase() });
         await refresh();
         // What Consul remembers, the saved chats and the cost share from the user's own history.
         api.memory().then(m => { if (active) setLedger(l => ({ ...l, memory: m.items.map(f => [f.key, f.value] as [string, string]) })); }).catch(() => {});
@@ -390,7 +394,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setMemory, openServerChat,
     chatId, chatTitle, loadChat: (h, q, r, t) => { setChatId(h.id); setChatTitle(`${h.title} · ${h.date}`); setMsgs([{ id: 1, role: "user", text: q }, { id: 2, role: "bot", reply: r }]); topic.current = t; },
     msgs, chat: chatG, newChat: () => { setMsgs([]); setChatId(""); setChatTitle(""); topic.current = null; serverChat.current = null; }, history, setTopic: (t) => { topic.current = t; },
-    plan, setPlan, calcTab, setCalcTab, bigText, setBigText: setBigTextRemote, stats, setStats: setStatsRemote, ui, setUi,
+    persona, plan, setPlan, calcTab, setCalcTab, bigText, setBigText: setBigTextRemote, stats, setStats: setStatsRemote, ui, setUi,
     remote, confirmDraft: (d) => { void gate.done.then(() => confirmDraft(d)); }, confirmRent: (r) => { void gate.done.then(() => confirmRent(r)); }, lang,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

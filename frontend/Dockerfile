@@ -10,7 +10,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Rewrites (/api/v1 → API) are fixed at build time; in the stack the API is the `api` container.
 ARG API_URL=http://api:8080
-ARG NEXT_PUBLIC_DEMO_OTP=481903
+ARG NEXT_PUBLIC_DEMO_OTP=123456
 ENV NEXT_TELEMETRY_DISABLED=1 API_URL=$API_URL NEXT_PUBLIC_DEMO_OTP=$NEXT_PUBLIC_DEMO_OTP
 RUN npm run build
 

@@ -560,6 +560,41 @@ paths:
       summary: "\"Why don't you register?\" — one answer per user, shown to the Chamber as shares only"
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [question, answer], properties: {question: {type: string, enum: [why_not_registered]}, answer: {type: string, enum: [fear_tax, complex_docs, no_benefit, other]}}}}}}
       responses: {'204': {description: Saved}, '422': {$ref: '#/components/responses/Error'}}
+  /prices:
+    get:
+      tags: [ledger]
+      summary: Market prices per unit (problem 19) — official, anonymous user medians and the user's own price
+      description: |
+        Sources side by side: `narx_stat` (official weekly averages: republic, Tashkent city), `user_op` (median of receipts
+        of users who agreed to anonymous statistics, only when at least 5 different users bought the product at that
+        bazaar) and `seed` (demo sample, `sample: true`). `mine` is the user's own latest unit price from their receipts.
+      parameters:
+        - {name: q, in: query, schema: {type: string, maxLength: 60}, description: "product name, any script (qoqi, мед, guruch)"}
+        - {name: limit, in: query, schema: {type: integer, default: 30, maximum: 50}}
+      responses:
+        '200':
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sample: {type: boolean, description: "true when demo sample rows are included"}
+                  sources: {type: array, items: {type: object, properties: {id: {type: string}, title: {type: string}, url: {type: string}, note: {type: string}}}}
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        product: {type: string}
+                        name: {type: string}
+                        unit: {type: string, example: kg}
+                        mine: {type: object, nullable: true, properties: {price: {$ref: '#/components/schemas/Money'}, at: {type: string, format: date}}}
+                        markets:
+                          type: array
+                          items: {type: object, properties: {market: {type: string, example: chorsu}, price: {$ref: '#/components/schemas/Money'}, n: {type: integer}, source: {type: string, enum: [narx_stat, user_op, seed]}, observed_at: {type: string, format: date}, sample: {type: boolean}}}
+        '400': {$ref: '#/components/responses/Error'}
+
   /healthz:
     get: {tags: [user], security: [], summary: Liveness, responses: {'200': {description: ok}}}
   /readyz:

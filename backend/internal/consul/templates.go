@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"finadvisor/internal/calculator"
+	"finadvisor/internal/kb"
 	"finadvisor/internal/ledger"
 	"finadvisor/internal/ledger/parse"
 )
@@ -216,9 +217,26 @@ func (t *tpl) topicReply(topic string, f facts) Reply {
 		r.Actions = []Action{{Label: t.s("report", "action"), Run: "bankReport", Primary: true}}
 		r.Topic = "general"
 	default:
+		// Not a topic we have a computed answer for: still useful — show what can be spent now.
 		r.Topic = "general"
-		r.Text = t.s("general", "text")
+		r.Text = fill(t.s("general", "text"), map[string]string{"free": som(v.Free)})
 		r.Sug = t.list("general", "sug")
+	}
+	return r
+}
+
+// kbReply answers from the best knowledge-base snippet: the template fallback for questions
+// that are not about the user's own numbers ("what is a margin?", "what if turnover > 1 bln?").
+// Rules that are not yet confirmed carry the "check soliq.uz" note.
+func (t *tpl) kbReply(hits []kb.Hit) Reply {
+	h := hits[0]
+	text := "**" + h.Title + "** — " + h.Text
+	if h.Unverified {
+		text += " " + t.s("kb", "check")
+	}
+	r := Reply{Text: text, Topic: "general", Sug: t.list("kb", "sug")}
+	for _, s := range h.Sources {
+		r.Work = append(r.Work, Work{true, t.s("kb", "source") + ": " + s.Title + " — " + s.URL})
 	}
 	return r
 }

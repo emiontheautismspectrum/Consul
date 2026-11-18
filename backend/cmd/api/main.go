@@ -26,6 +26,7 @@ import (
 	"finadvisor/internal/infrastructure/ratelimit"
 	"finadvisor/internal/ledger"
 	"finadvisor/internal/palata"
+	"finadvisor/internal/prices"
 	"finadvisor/internal/speech"
 	"finadvisor/internal/user"
 	"finadvisor/internal/vision"
@@ -46,8 +47,11 @@ func main() {
 	//   demo-reset      restore the demo account to the reference ledger
 	//   palata-seed     replace the synthetic Chamber population (812 entrepreneurs) and refresh
 	//   palata-refresh  recompute the Chamber snapshots now
+	//   prices-refresh  fetch narx.stat.uz and recompute the anonymous user medians now
+	//   prices-seed     insert the flagged sample bazaar prices for the demo
+	//   eval-chat       run the 50-question quality check against the real model (EVAL_ONLY=text filters)
 	if len(os.Args) > 1 {
-		cmds := map[string]func() error{"demo-reset": demoReset, "palata-seed": palataSeed, "palata-refresh": palataRefresh}
+		cmds := map[string]func() error{"demo-reset": demoReset, "palata-seed": palataSeed, "palata-refresh": palataRefresh, "eval-chat": evalChat, "prices-refresh": pricesRefresh, "prices-seed": pricesSeed}
 		if cmd, ok := cmds[os.Args[1]]; ok {
 			if err := cmd(); err != nil {
 				slog.Error(os.Args[1], "err", err)
@@ -125,11 +129,16 @@ func run() error {
 
 	// Consul chat: the same LLM gateway, ledger data through interfaces, templates as fallback.
 	consulRepo := consul.NewPGRepo(database)
-	consulSvc, err := consul.NewService(llmClient, engine, ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12},
+	chatClient := llm.NewHTTPClient(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIChatModel, cfg.AIChatDeadline+5*time.Second).WithRetries(0)
+	consulSvc, err := consul.NewService(chatClient, engine, ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12},
 		ledgerRepo, consulRepo, rdb, consulRepo)
 	if err != nil {
 		return err
 	}
+	consulSvc.WithDeadline(cfg.AIChatDeadline)
+	priceRepo := prices.NewRepo(database)
+	consulSvc.WithPrices(prices.Finder{Repo: priceRepo})
+
 	consulH := consul.NewHandler(consulSvc, rdb, consulRepo)
 
 	// Voice (VoiceLab). Without a key every call answers 503 voice_unavailable and the UI
@@ -168,9 +177,11 @@ func run() error {
 	advisorH.Register(v1, authH.RequireAuth)
 	visionH.Register(v1, authH.RequireAuth)
 	consulH.Register(v1, authH.RequireAuth)
+	prices.NewHandler(priceRepo).Register(v1, authH.RequireAuth)
 	palataRepo := palata.NewRepo(database)
 	palata.NewHandler(palataRepo).Register(v1) // public, aggregates only
 	go palataScheduler(ctx, palataRepo)
+	go pricesScheduler(ctx, priceRepo)
 	speechH.Register(v1, authH.RequireAuth)
 	api.Register(v1)
 
@@ -348,4 +359,79 @@ func palataRefresh() error {
 	}
 	defer done()
 	return palata.NewRepo(database).Refresh(context.Background(), time.Now())
+}
+
+// evalChat measures the assistant on the reference ledger: no database is touched.
+func evalChat() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	rules, err := calculator.LoadUZRules()
+	if err != nil {
+		return err
+	}
+	client := llm.NewHTTPClient(cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIChatModel, cfg.AIChatDeadline+5*time.Second).WithRetries(0)
+	_, err = consul.RunEval(context.Background(), client, calculator.NewService(rules, nil),
+		ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12}, cfg.AIChatDeadline, os.Stdout, os.Getenv("EVAL_ONLY"))
+	return err
+}
+
+// pricesScheduler refreshes market prices at startup (if empty is not checked: the unique key
+// makes repeats harmless) and every day at 04:00 Tashkent: official weekly averages from
+// narx.stat.uz and the anonymous medians of consenting users' receipts.
+func pricesScheduler(ctx context.Context, repo *prices.Repo) {
+	tashkent := time.FixedZone("Asia/Tashkent", 5*60*60)
+	refresh := func() {
+		c, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+		if err := repo.RefreshSource(c, prices.NewNarxStat()); err != nil {
+			slog.Error("prices: narx.stat.uz", "err", err)
+		}
+		if err := repo.RefreshUserMedians(c, time.Now()); err != nil {
+			slog.Error("prices: user medians", "err", err)
+		}
+	}
+	select { // do not slow down the start of the API
+	case <-ctx.Done():
+		return
+	case <-time.After(30 * time.Second):
+	}
+	refresh()
+	for {
+		now := time.Now().In(tashkent)
+		next := time.Date(now.Year(), now.Month(), now.Day(), 4, 0, 0, 0, tashkent)
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 1)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Until(next)):
+			refresh()
+		}
+	}
+}
+
+func pricesRefresh() error {
+	database, done, err := adminDB()
+	if err != nil {
+		return err
+	}
+	defer done()
+	repo := prices.NewRepo(database)
+	ctx := context.Background()
+	if err := repo.RefreshSource(ctx, prices.NewNarxStat()); err != nil {
+		return err
+	}
+	return repo.RefreshUserMedians(ctx, time.Now())
+}
+
+func pricesSeed() error {
+	database, done, err := adminDB()
+	if err != nil {
+		return err
+	}
+	defer done()
+	return prices.NewRepo(database).SeedSample(context.Background(), time.Now())
 }

@@ -26,6 +26,8 @@ var toolDefs = []llm.Tool{
 	tool("calculate_loan", "Loan schedule summary for a given amount.", `{"type":"object","properties":{"amount":{"type":"number"},"annual_rate":{"type":"number"},"term_months":{"type":"integer"},"method":{"type":"string","enum":["annuity","differentiated"]}},"required":["amount","annual_rate","term_months"]}`),
 	tool("calculate_tax", "Uzbekistan annual tax by regime for a given revenue.", `{"type":"object","properties":{"entity_type":{"type":"string","enum":["ie","self","llc"]},"annual_revenue":{"type":"number"},"annual_expenses":{"type":"number"},"regime":{"type":"string","enum":["auto","turnover","vat6","general"]}},"required":["annual_revenue"]}`),
 	tool("calculate_breakeven", "Break-even and payback for an investment.", `{"type":"object","properties":{"initial_investment":{"type":"number"},"fixed_costs_monthly":{"type":"number"},"price_per_unit":{"type":"number"},"variable_cost_per_unit":{"type":"number"},"expected_units_monthly":{"type":"number"}},"required":["fixed_costs_monthly","price_per_unit","variable_cost_per_unit"]}`),
+	tool("query_ops", "Read-only search in the user's own operations. Filter by kind, label (expense word such as svet, ijara, taksi), counterparty (D1, D2…) and dates. Returns the count, the total and the newest rows. Use it for any question like \"how much did I spend on X\", \"what were my last sales\", \"what did I sell this week\".", `{"type":"object","properties":{"kind":{"type":"string","enum":["sale","buy","exp","sup","nas","repaid"]},"label":{"type":"string"},"counterparty":{"type":"string","description":"D1, D2… as in list_debtors"},"from":{"type":"string","description":"YYYY-MM-DD, inclusive"},"to":{"type":"string","description":"YYYY-MM-DD, inclusive"},"limit":{"type":"integer","minimum":1,"maximum":20}}}`),
+	tool("market_prices", "Market prices per unit for a product: the user's own latest purchase price, bazaar medians (Chorsu, Oloy…, from anonymous receipts) and official weekly averages (narx.stat.uz). Use it for \"is my price fair\", \"where is it cheaper\".", `{"type":"object","properties":{"product":{"type":"string","description":"product name, e.g. qoqi, mayiz, guruch, olma"}},"required":["product"]}`),
 	tool("remember_fact", "Save a short fact about the user's business for later (only when the user explicitly asks to remember something: rent day, supplier, goal). The user can see and erase it.", `{"type":"object","properties":{"key":{"type":"string","description":"short label, e.g. Ijara, Taʼminotchi, Maqsad"},"value":{"type":"string","description":"the fact, one short sentence"}},"required":["key","value"]}`),
 	tool("draft_operation", "Prepare (do NOT record) an operation the user asked to write down; the user confirms it in the app.", `{"type":"object","properties":{"kind":{"type":"string","enum":["sale","buy","exp","sup","nas","repaid"]},"amount":{"type":"integer"},"method":{"type":"string","enum":["naqd","karta","none"]},"label":{"type":"string"},"counterparty":{"type":"string"}},"required":["kind","amount"]}`),
 }
@@ -44,6 +46,7 @@ type session struct {
 	pool    []float64
 	userID  string
 	memory  MemoryStore
+	prices  PriceLookup
 }
 
 type ToolTrace struct {
@@ -146,6 +149,17 @@ func (s *session) run(name, args string) (any, error) {
 		r, err := s.engine.Breakeven(s.ctx, in)
 		r.Cashflow = nil
 		return r, err
+	case "market_prices":
+		var in struct{ Product string }
+		if err := json.Unmarshal([]byte(args), &in); err != nil {
+			return nil, err
+		}
+		if s.prices == nil {
+			return nil, fmt.Errorf("prices are unavailable")
+		}
+		return s.prices.Lookup(s.ctx, s.userID, in.Product)
+	case "query_ops":
+		return s.queryOps(args)
 	case "remember_fact":
 		var in struct{ Key, Value string }
 		if err := json.Unmarshal([]byte(args), &in); err != nil {
@@ -216,4 +230,117 @@ func (s *session) exec(name, args string) string {
 	}
 	s.trace = append(s.trace, tr)
 	return string(out)
+}
+
+// queryOps is a safe, read-only window into the user's own ledger: filters run in Go over the
+// already loaded state (no SQL from the model), only this user's rows exist in it, and
+// customer names come back masked like everywhere else.
+func (s *session) queryOps(args string) (any, error) {
+	var in struct {
+		Kind         string `json:"kind"`
+		Label        string `json:"label"`
+		Counterparty string `json:"counterparty"`
+		From         string `json:"from"`
+		To           string `json:"to"`
+		Limit        int    `json:"limit"`
+	}
+	if err := json.Unmarshal([]byte(args), &in); err != nil {
+		return nil, err
+	}
+	parseDay := func(v string) (time.Time, error) {
+		if v == "" {
+			return time.Time{}, nil
+		}
+		return time.ParseInLocation(time.DateOnly, v, ledger.Tashkent)
+	}
+	from, err := parseDay(in.From)
+	if err != nil {
+		return nil, fmt.Errorf("from must be YYYY-MM-DD")
+	}
+	to, err := parseDay(in.To)
+	if err != nil {
+		return nil, fmt.Errorf("to must be YYYY-MM-DD")
+	}
+	if !to.IsZero() {
+		to = to.AddDate(0, 0, 1)
+	}
+	if in.Limit < 1 || in.Limit > 20 {
+		in.Limit = 10
+	}
+	label := ledger.NameKey(in.Label)
+	who := ledger.NameKey(s.unmask(in.Counterparty))
+
+	type row struct {
+		Date         string `json:"date"`
+		Kind         string `json:"kind"`
+		Amount       int64  `json:"amount"`
+		Method       string `json:"method"`
+		Label        string `json:"label,omitempty"`
+		Counterparty string `json:"counterparty,omitempty"`
+	}
+	var rows []row
+	byKind := map[string]int64{}
+	var count int
+	var total int64
+	for i := len(s.state.Ops) - 1; i >= 0; i-- { // newest first
+		o := s.state.Ops[i]
+		if o.Kind == ledger.KindOpening || o.Kind == ledger.KindFix {
+			continue
+		}
+		if in.Kind != "" && o.Kind != in.Kind {
+			continue
+		}
+		if !from.IsZero() && o.OccurredAt.Before(from) || !to.IsZero() && !o.OccurredAt.Before(to) {
+			continue
+		}
+		if label != "" && !strings.Contains(ledger.NameKey(o.Label), label) {
+			continue
+		}
+		name := ""
+		if o.Counterparty != nil {
+			name = *o.Counterparty
+		} else if o.CounterpartyID != nil {
+			name = s.state.Counterparties[*o.CounterpartyID].Name
+		}
+		if who != "" && ledger.NameKey(name) != who {
+			continue
+		}
+		count++
+		total += o.Amount
+		byKind[o.Kind] += o.Amount
+		if len(rows) < in.Limit {
+			cp := ""
+			if name != "" {
+				cp = s.mask(name)
+				if o.Kind == ledger.KindNas || o.Kind == ledger.KindRepaid {
+					if cp == name { // a customer who owes nothing now still must not be named
+						cp = "customer"
+					}
+				}
+			}
+			rows = append(rows, row{o.OccurredAt.In(ledger.Tashkent).Format(time.DateOnly), o.Kind, o.Amount, o.Method, o.Label, cp})
+		}
+	}
+	return map[string]any{"count": count, "total": total, "by_kind": byKind, "rows": rows}, nil
+}
+
+// maskText replaces debtor names in the user's question with their D1, D2… labels, so the model
+// can connect "Bekzod" in the question to the masked rows it is given. Matching ignores script
+// and case ("Бекзод", "bekzodga"): a word is a name when it starts with the name's key.
+func (s *session) maskText(text string) string {
+	words := strings.Fields(text)
+	for i, w := range words {
+		key := ledger.NameKey(strings.Trim(w, ".,!?:;\"'()"))
+		if len([]rune(key)) < 3 {
+			continue
+		}
+		for label, name := range s.masks {
+			first := ledger.NameKey(strings.Fields(name)[0])
+			if first != "" && strings.HasPrefix(key, first) {
+				words[i] = label
+				break
+			}
+		}
+	}
+	return strings.Join(words, " ")
 }

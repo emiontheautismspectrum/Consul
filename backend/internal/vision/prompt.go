@@ -24,6 +24,7 @@ RULES
 - Copy numbers, dates, amounts, STIR/INN, PINFL, account numbers and MFO digit by digit.
 - Extract the most important fields (parties, document number and date, amounts, VAT, totals,
   currency, STIR/INN, bank details, due dates, signatures/stamps present). Values exactly as written.
+- For receipts, invoices and waybills list every line item in "items" with the unit price in so'm (copy it, never compute it); leave "items" empty when lines are unreadable.
 - If the image is not a document, set is_document=false and describe what is on it in summary.
 - Write title, summary, field labels and warnings in %s. Keep "text" and field values in the original language.
 
@@ -35,6 +36,7 @@ Reply with ONLY a JSON object:
   "language": "language code(s) of the document, e.g. ru, uz, uz-cyrl, en",
   "text": "full transcription",
   "fields": [{"key": "total_amount", "label": "...", "value": "14 000 000 so'm"}],
+  "items": [{"name": "product as written", "qty": 50, "unit": "kg", "unit_price": 46000}],
   "summary": "2-3 sentences: what the document is and what it means for the business",
   "warnings": ["blurry areas, missing stamp/signature, inconsistent totals, etc."]
 }`, langNames[lang], documentTypes)

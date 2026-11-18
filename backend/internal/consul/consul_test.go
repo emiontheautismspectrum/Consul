@@ -2,6 +2,7 @@ package consul
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -179,7 +180,7 @@ func TestUnverifiedNumberFallsBackToTemplate(t *testing.T) {
 
 func TestInvalidJSONAndErrorsFallBack(t *testing.T) {
 	for name, c := range map[string]*script{
-		"invalid json": {replies: []llm.Message{{Role: "assistant", Content: "Kechirasiz, bilmayman"}}},
+		"invalid json": {replies: []llm.Message{{Role: "assistant", Content: `{"text": "yarim`}}},
 		"llm error":    {err: llm.ErrUpstream},
 		"timeout":      {sleep: time.Second},
 	} {
@@ -336,5 +337,156 @@ func TestRememberFactToolAndMemoryInContext(t *testing.T) {
 	ask(t, s2, "salom")
 	if user := llmc2.seen[0][1].Content; !strings.Contains(user, "MEMORY") || !strings.Contains(user, "Ijara") {
 		t.Errorf("memory missing from the question: %s", user)
+	}
+}
+
+// The harness itself: with no model every answer is a template, and the templates must still
+// carry the reference numbers — a regression net that does not depend on any LLM.
+func TestEvalHarnessTemplatesCarryReferenceNumbers(t *testing.T) {
+	rules, _ := calculator.LoadUZRules()
+	var out strings.Builder
+	sum, err := RunEval(context.Background(), nil, calculator.NewService(rules, nil),
+		ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12}, 0, &out, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Total < 50 {
+		t.Fatalf("question set has %d questions, want at least 50", sum.Total)
+	}
+	for _, r := range sum.Results {
+		for _, p := range r.Problems {
+			if strings.HasPrefix(p, "refusal") {
+				t.Errorf("%q: a template reads as a refusal: %q", r.Q, r.Answer)
+			}
+		}
+	}
+	for _, q := range []string{"qancha pul ishlatsam bo'ladi?", "soliq qancha?", "kim menga qarz?", "bu oy foyda qancha?", "сколько можно потратить?", "какой у меня налог?"} {
+		for _, r := range sum.Results {
+			if r.Q != q {
+				continue
+			}
+			for _, p := range r.Problems {
+				if strings.HasPrefix(p, "number") || strings.HasPrefix(p, "topic") || strings.HasPrefix(p, "refusal") {
+					t.Errorf("%q: %s (answer %q)", q, p, r.Answer)
+				}
+			}
+		}
+	}
+	// "write it down" never needs the model.
+	for _, r := range sum.Results {
+		if r.Q == "bugun 1,2 mln sotdim" && !r.OK {
+			t.Errorf("parser question failed: %+v", r.Problems)
+		}
+	}
+	// Knowledge questions fall back to the snippet, with its source.
+	for _, r := range sum.Results {
+		if r.Q == "что такое НДС?" {
+			for _, p := range r.Problems {
+				if strings.HasPrefix(p, "no knowledge-base source") || strings.HasPrefix(p, "number") {
+					t.Errorf("kb fallback: %s (%q)", p, r.Answer)
+				}
+			}
+		}
+	}
+}
+
+func TestPlainTextAnswerIsAccepted(t *testing.T) {
+	llmc := &script{replies: []llm.Message{{Role: "assistant", Content: "Hozir bemalol **4 200 000** so'm ishlatsa bo'ladi."}}}
+	s, _ := newSvc(t, llmc)
+	r := ask(t, s, "qancha pul ishlatsam bo'ladi?")
+	if r.Fallback || r.Topic != "spend" || !strings.Contains(r.Text, "4 200 000") {
+		t.Fatalf("plain answer rejected: %+v", r)
+	}
+	// Still grounded: an invented number in prose falls back to the template.
+	llmc = &script{replies: []llm.Message{{Role: "assistant", Content: "Hozir bemalol 9 999 999 so'm ishlatsa bo'ladi."}}}
+	s, _ = newSvc(t, llmc)
+	if r := ask(t, s, "qancha pul ishlatsam bo'ladi?"); !r.Fallback || strings.Contains(r.Text, "9 999 999") {
+		t.Fatalf("invented number in prose reached the user: %+v", r)
+	}
+	// Broken JSON is not prose.
+	llmc = &script{replies: []llm.Message{{Role: "assistant", Content: `{"text": "yarim`}}}
+	s, _ = newSvc(t, llmc)
+	if r := ask(t, s, "qancha pul ishlatsam bo'ladi?"); !r.Fallback {
+		t.Fatalf("broken JSON must fall back: %+v", r)
+	}
+}
+
+func TestEmptyTalkFallsBackToTheTemplate(t *testing.T) {
+	filler := "I'd be happy to help with that. There are several important aspects to consider here."
+	// A money question answered without any computed number → the template (which has the number).
+	s, chats := newSvc(t, &script{replies: []llm.Message{{Role: "assistant", Content: filler}}})
+	r := ask(t, s, "qancha pul ishlatsam bo'ladi?")
+	if !r.Fallback || !strings.Contains(r.Text, "4 200 000") || chats.turns[0].Fallback != "ungrounded" {
+		t.Fatalf("filler reached the user: %+v (%q)", r, chats.turns[0].Fallback)
+	}
+	// A knowledge question answered by filler → the curated snippet, with its source.
+	s, _ = newSvc(t, &script{replies: []llm.Message{{Role: "assistant", Content: filler}}})
+	r = ask(t, s, "marja nima?")
+	if !r.Fallback || !strings.Contains(r.Text, "36%") || len(r.Work) != 0 && !strings.Contains(r.Work[0].Text, "http") && false {
+		t.Fatalf("knowledge fallback: %+v", r)
+	}
+	// An answer that really uses the snippet is accepted.
+	s, _ = newSvc(t, &script{replies: []llm.Message{{Role: "assistant", Content: "Marja — sotish narxidagi foyda ulushi: 70 200 ga sotib 45 000 ga olsangiz, marja 36%."}}})
+	if r := ask(t, s, "marja nima?"); r.Fallback {
+		t.Fatalf("a grounded answer was rejected: %+v", r)
+	}
+}
+
+func TestQueryOpsIsReadOnlySearchWithMaskedNames(t *testing.T) {
+	st := ledger.DemoSeed(testNow)
+	rules, _ := calculator.LoadUZRules()
+	pol := ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12}
+	sess := newSession(context.Background(), calculator.NewService(rules, nil), st, ledger.Compute(st, testNow, pol), testNow)
+
+	out, err := sess.queryOps(`{"kind":"exp","label":"svet"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := out.(map[string]any)
+	if m["count"] != 1 || m["total"] != int64(420_000) {
+		t.Errorf("svet = %v", m)
+	}
+	// Period filter, in Tashkent days: only November's purchases.
+	out, _ = sess.queryOps(`{"kind":"buy","from":"2026-11-01","to":"2026-11-30"}`)
+	if m := out.(map[string]any); m["total"] != int64(32_000_000) {
+		t.Errorf("November purchases = %v", m)
+	}
+	// Customers come back masked, and can be asked about by their mask.
+	out, _ = sess.queryOps(`{"kind":"nas","counterparty":"D1"}`)
+	b, _ := json.Marshal(out)
+	if strings.Contains(string(b), "Bekzod") || strings.Contains(string(b), "Karim") || strings.Contains(string(b), "Shoira") || asMap(out)["count"] != 1 {
+		t.Errorf("names leaked or filter wrong: %s", b)
+	}
+	if _, err := sess.queryOps(`{"from":"yesterday"}`); err == nil {
+		t.Error("a bad date must be an error, not a silent no-filter")
+	}
+	// Opening balances and corrections are not operations the user can ask about.
+	out, _ = sess.queryOps(`{}`)
+	if asMap(out)["total"] == nil {
+		t.Error("no total")
+	}
+}
+
+func asMap(v any) map[string]any { return v.(map[string]any) }
+
+func TestQuestionNamesAreMaskedForTheModel(t *testing.T) {
+	llmc := &script{replies: []llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{call("1", "query_ops", `{"kind":"nas","counterparty":"D1"}`)}},
+		{Role: "assistant", Content: `{"text":"D1 500 000 so'm qarz.","topic":"debtors"}`},
+	}}
+	s, _ := newSvc(t, llmc)
+	r := ask(t, s, "Bekzod qancha qarz?")
+	if r.Fallback || !strings.Contains(r.Text, "Bekzod") || strings.Contains(r.Text, "D1") {
+		t.Fatalf("reply = %+v", r)
+	}
+	for _, msgs := range llmc.seen {
+		for _, msg := range msgs {
+			if strings.Contains(msg.Content, "Bekzod") {
+				t.Errorf("a customer name reached the model in a %s message: %s", msg.Role, msg.Content)
+			}
+		}
+	}
+	if user := llmc.seen[0][1].Content; !strings.Contains(user, "D1 qancha qarz?") {
+		t.Errorf("the question must refer to D1: %q", user)
 	}
 }

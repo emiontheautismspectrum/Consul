@@ -15,7 +15,8 @@ export const DEMO: Ledger = {
   memory: [["Ijara", "3 000 000 · har oy 5-sanada"], ["Taʼminotchi", "Akmal aka · oʻrik qoqi, mayiz"], ["Yordamchi", "yoʻq"], ["Rasta", "Chorsu, 2-qator"], ["Maqsad", "ikkinchi rasta ochish"], ["Kredit", "34 mln haqida soʻragan · olmagan"], ["Til", "oʻzbekcha, ovoz bilan"]],
 };
 
-export const USER = { name: "Dilnoza", full: "Dilnoza Karimova", trade: "Quruq mevalar", place: "Chorsu", status: "YaTT" };
+export interface Persona { name: string; full: string; trade: string; place: string; status: string }
+export const USER: Persona = { name: "Dilnoza", full: "Dilnoza Karimova", trade: "Quruq mevalar", place: "Chorsu", status: "YaTT" };
 
 /** Market medians per kg (sample; production source: narx.stat.uz + user purchases). */
 export const PRICES = [

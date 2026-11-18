@@ -40,6 +40,8 @@ func DemoSeed(now time.Time) State {
 			OccurredAt: when, CreatedAt: when.Add(time.Duration(seq) * time.Millisecond)}
 		if cp != "" {
 			o.CounterpartyID = &cp
+			name := st.Counterparties[cp].Name
+			o.Counterparty = &name
 		}
 		st.Ops = append(st.Ops, o)
 	}
@@ -63,7 +65,10 @@ func DemoSeed(now time.Time) State {
 	add(KindNas, 500_000, MethodNone, n.AddDate(0, 0, -14), "karim")
 	add(KindNas, 700_000, MethodNone, n.AddDate(0, 0, -3), "shoira")
 	add(KindBuy, 32_000_000, MethodKarta, in(0, 7, 10), "")
-	add(KindExp, 12_000_000, MethodNaqd, in(0, 12, 10), "")
+	st.Ops[len(st.Ops)-1].Items = json.RawMessage(`[{"name":"Oʻrik qoqi","qty":200,"unit":"kg","price":50400},{"name":"Mayiz","qty":100,"unit":"kg","price":37000}]`)
+	add(KindExp, 11_580_000, MethodNaqd, in(0, 12, 10), "")
+	add(KindExp, 420_000, MethodNaqd, in(0, 10, 10), "")
+	st.Ops[len(st.Ops)-1].Label = "svet" // electricity, so "how much did svet cost?" has an answer
 
 	rentDay, akmal, akmalName := 5, "akmal", "Akmal aka"
 	supplierDue := time.Date(n.Year(), n.Month()+1, 10, 0, 0, 0, 0, Tashkent)
@@ -136,9 +141,9 @@ func (r *PGRepo) ResetDemo(ctx context.Context, userID string, now time.Time) er
 	}
 	for _, o := range seed.Ops {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO ops (user_id, kind, amount, method, label, counterparty_id, source, occurred_at, created_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			userID, o.Kind, o.Amount, o.Method, o.Label, ref(o.CounterpartyID), o.Source, o.OccurredAt, o.CreatedAt); err != nil {
+			`INSERT INTO ops (user_id, kind, amount, method, label, counterparty_id, source, occurred_at, created_at, items)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+			userID, o.Kind, o.Amount, o.Method, o.Label, ref(o.CounterpartyID), o.Source, o.OccurredAt, o.CreatedAt, nullStr2(string(o.Items))); err != nil {
 			return err
 		}
 	}

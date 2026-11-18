@@ -1,14 +1,13 @@
 "use client";
 import { useT } from "@/components/I18n";
 import { fmt } from "@/lib/format";
-import { USER } from "@/lib/demo";
 import { useStore } from "../Store";
 import { Screen } from "./common";
 
 export default function Nasiya() { const t = useT();
-  const s = useStore(), { ledger: l, view: v } = s;
+  const s = useStore(), { ledger: l, view: v } = s, USER = s.persona;
   const remind = (name: string, amount: number) => {
-    const msg = t("Assalomu alaykum, {p0}! Quruq mevalar uchun {p1} soʻm qarz qolgan edi. Imkoningiz boʻlganda toʻlab qoʻysangiz. Rahmat! — {p2}", { p0: name, p1: fmt(amount), p2: USER.name });
+    const msg = t("Assalomu alaykum, {p0}! Quruq mevalar uchun {p1} soʻm qarz qolgan edi. Imkoningiz boʻlganda toʻlab qoʻysangiz. Rahmat! — {p2}", { p0: name, p1: fmt(amount), p2: USER.name || USER.full });
     s.openSheet(<><h4>{t("Eslatma ·")} {name}</h4><p style={{ fontSize: 15, lineHeight: 1.55, background: "var(--mist)", borderRadius: 12, padding: 12 }}>{msg}</p>
       <button className="btn w" onClick={() => { navigator.clipboard?.writeText(msg).catch(() => {}); s.closeSheet(); s.showToast({ main: t("Nusxalandi"), sub: t("SMS yoki messenjerga joylashtiring") }); }}>{t("Nusxa olish")}</button></>);
   };

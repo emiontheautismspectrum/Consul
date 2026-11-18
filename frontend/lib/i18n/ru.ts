@@ -1145,4 +1145,9 @@ export const RU: Record<string, string> = {
   "Iyul": "Июль",
   "Avgust": "Август",
   "Dekabr": "Декабрь",
+  "Bozor medianasidan qimmatroq toʻladingiz": "Вы платите дороже медианы рынка",
+  "soʻm / kg": "сум / кг",
+  "{n} narxingiz bozor medianasidan {p}% qimmat": "Ваша цена на {n} на {p}% выше медианы рынка",
+  "Narx kuzatuvlari hali yoʻq": "Наблюдений за ценами пока нет",
+  "Manba: Milliy statistika qoʻmitasi (narx.stat.uz) va Consul foydalanuvchilarining anonim xaridlari": "Источник: Национальный комитет статистики (narx.stat.uz) и анонимные закупки пользователей Consul",
 };

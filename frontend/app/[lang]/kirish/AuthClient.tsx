@@ -7,7 +7,7 @@ import { fmt } from "@/lib/format";
 import { api, ApiError, type Business } from "@/lib/api";
 
 /** Demo SMS code shown on screen; the server accepts it when it runs with APP_ENV=demo and DEMO_OTP set to the same value. */
-const DEMO_CODE = process.env.NEXT_PUBLIC_DEMO_OTP || "481903";
+const DEMO_CODE = process.env.NEXT_PUBLIC_DEMO_OTP || "123456";
 
 const SECTOR: Record<string, string> = { "Quruq mevalar": "dried_fruit", "Oziq-ovqat": "food", "Kiyim": "clothes", "Xizmat": "services" };
 const MARKET: Record<string, string> = { "Chorsu": "chorsu", "Oloy": "oloy", "Parkent": "parkent", "Qoʻyliq": "quyliq" };

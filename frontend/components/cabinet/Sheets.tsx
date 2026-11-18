@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useT, tk, useMln } from "@/components/I18n";
 import { fmt, formatInput, roundK } from "@/lib/format";
 import { annuity } from "@/lib/finance";
-import { HISTORY, USER } from "@/lib/demo";
+import { HISTORY } from "@/lib/demo";
 import { GOALS, payback, planProfit, type Plan } from "@/lib/plan";
 import { VOICE } from "@/lib/cabinet";
 import { api, type BankReport as ApiBankReport, type Recognized } from "@/lib/api";
@@ -66,7 +66,7 @@ export function BankReport() {
 }
 
 function BankReportDemo() { const t = useT(), mln = useMln();
-  const { view: v, ledger: l } = useStore();
+  const { view: v, ledger: l, persona: USER } = useStore();
   const M = [...HISTORY.map(h => [h.month, h.income, h.expenses] as const), [t("Noyabr*"), l.money.income, v.expenses] as const];
   const avg = roundK(M.reduce((s, m) => s + m[1] - m[2], 0) / 3), L = 34e6, p = annuity(L, 24, 0.02);
   return <>
@@ -83,7 +83,7 @@ function BankReportDemo() { const t = useT(), mln = useMln();
 }
 
 export function PlanReport() { const t = useT();
-  const { plan: p } = useStore(), x = planProfit(p), m = payback(p), r = payback(p, 0.8);
+  const { plan: p, persona: USER } = useStore(), x = planProfit(p), m = payback(p), r = payback(p, 0.8);
   return <>
     <div className="doc">
       <h5>{t("Biznes-reja ·")} {p.title}</h5><p className="m">{USER.full} · {USER.status} · {today()}</p>

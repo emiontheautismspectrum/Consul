@@ -3,7 +3,6 @@ import { Link, LangSwitch, useT, useTP, tk } from "@/components/I18n";
 import { useRouter } from "@/components/I18n";
 import { useState, type ReactNode } from "react";
 import { fmt } from "@/lib/format";
-import { USER } from "@/lib/demo";
 import { Icon } from "@/components/Icons";
 import { useStore } from "../Store";
 import { SupportSheet } from "../Sheets";
@@ -30,7 +29,7 @@ const NAV: [string, ReactNode, string, (t: ReturnType<typeof useT>, n: number) =
 ];
 
 export default function Men({ sub }: { sub?: string }) { const t = useT(), tp = useTP();
-  const s = useStore(), router = useRouter(), l = s.ledger;
+  const s = useStore(), router = useRouter(), l = s.ledger, USER = s.persona;
   const [remember, setRemember] = useState(true);
   const [voice, setVoice] = useState(true), [speed, setSpeed] = useState(t("Oddiy"));
   const [taxR, setTaxR] = useState(true), [nasR, setNasR] = useState(true), [where, setWhere] = useState(t("Ilova"));
@@ -46,7 +45,7 @@ export default function Men({ sub }: { sub?: string }) { const t = useT(), tp = 
 
   return <section className="scr on" id="s-men"><div className="pw2">
     <aside className="pnav">
-      <div className="phead"><span className="av big">D</span><div><p className="pn">{USER.full}</p><p className="pd">{t(USER.trade)} · {t(USER.place)} · {t(USER.status)}</p></div></div>
+      <div className="phead"><span className="av big">{(USER.full || "?").replace(/^\+/, "")[0]}</span><div><p className="pn">{USER.full}</p><p className="pd">{[USER.trade, USER.place, USER.status].filter(Boolean).map(x => t(x)).join(" · ")}</p></div></div>
       <div className="list">{NAV.map(([k, ic, label, d]) => <Link key={k} className={"li" + (sub === k || (!sub && k === "biznes") ? " on" : "")} href={"/app/men/" + k}><span className="ti2">{ic}</span><span className="lt">{t(label)}{d(t, l.memory.length) && <small>{d(t, l.memory.length)}</small>}</span><i className="chev">›</i></Link>)}</div>
       <Link className="lnk2 out" href="/kirish">{t("Chiqish")}</Link>
     </aside>

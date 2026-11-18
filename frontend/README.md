@@ -24,7 +24,7 @@ node .next/standalone/server.js   # or use the Dockerfile
 | Path | What |
 |---|---|
 | `/` | Landing with GSAP + Lenis motion (`components/site/landingAnim.ts`) |
-| `/kirish` | Login and registration (`?register=1`), demo SMS code `481903` |
+| `/kirish` | Login and registration (`?register=1`), demo SMS code `123456` |
 | `/kalkulyatorlar` | Public calculators: credit, tax, break-even, price (`#kredit`, `#soliq`…) |
 | `/palata` | Anonymous report for the Chamber of Commerce (problem 21) |
 | `/maxfiylik` | Privacy, terms, anonymous statistics, deletion |
@@ -70,7 +70,7 @@ All numbers come from `lib/` math, never from a model. These parts are demo stan
 | `lib/parse.ts` + `lib/answer.ts` | LLM endpoint that returns the same `Intent` / `Reply` shapes; keep the deterministic math |
 | Voice sheet (typed sample phrase) | VoiceLab STT/TTS through a backend proxy (API key stays on the server) |
 | Receipt sheet (sample receipt) | OCR endpoint returning line items |
-| SMS code `481903` | Real OTP |
+| SMS code `123456` | Real OTP |
 | `/palata` sample aggregates | Backend aggregates with k-anonymity ≥ 5 |
 
 Tax rules in `lib/tax.ts` are for 2026 (turnover tax 1% up to 1 bln, 4% above; general regime above

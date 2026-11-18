@@ -45,16 +45,17 @@ type Field struct {
 }
 
 type Result struct {
-	IsDocument   bool      `json:"is_document"`
-	DocumentType string    `json:"document_type"`
-	Title        string    `json:"title"`
-	Language     string    `json:"language"` // language of the document itself
-	Text         string    `json:"text"`     // full transcription, original language
-	Fields       []Field   `json:"fields"`
-	Summary      string    `json:"summary"`
-	Warnings     []string  `json:"warnings"`
-	Model        string    `json:"model"`
-	DraftOps     []DraftOp `json:"draft_ops"` // proposed operations; the user confirms, then POST /ops
+	IsDocument   bool       `json:"is_document"`
+	DocumentType string     `json:"document_type"`
+	Title        string     `json:"title"`
+	Language     string     `json:"language"` // language of the document itself
+	Text         string     `json:"text"`     // full transcription, original language
+	Fields       []Field    `json:"fields"`
+	Summary      string     `json:"summary"`
+	Warnings     []string   `json:"warnings"`
+	Model        string     `json:"model"`
+	Items        []LineItem `json:"items"`
+	DraftOps     []DraftOp  `json:"draft_ops"` // proposed operations; the user confirms, then POST /ops
 }
 
 type Service struct {

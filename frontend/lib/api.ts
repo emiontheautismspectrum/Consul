@@ -70,7 +70,9 @@ export interface ApiOp {
   counterparty: string | null; fiscal: boolean; source: string; occurred_at: string;
 }
 export interface ApiDebtor { id: string; name: string; owed: number; days: number }
-export interface Draft { kind?: ApiOp["kind"]; amount?: number; method?: ApiOp["method"]; label?: string; counterparty?: string; source?: string; raw_text?: string }
+export interface Draft { kind?: ApiOp["kind"]; amount?: number; method?: ApiOp["method"]; label?: string; counterparty?: string; source?: string; raw_text?: string; fiscal?: boolean;
+  /** Receipt lines (unit price per `unit`); the server turns them into anonymous market medians. */
+  items?: { name: string; qty?: number; unit?: string; price: number }[] }
 export interface ApiIntent {
   type: "op" | "fix" | "rent" | "question" | "report" | "need_amount" | "need_kind" | "unknown";
   draft?: Draft; rent?: { amount: number; due_day?: number }; topic?: string; lang: "uz" | "ru"; confirm: boolean;
@@ -113,6 +115,10 @@ export interface PlanResult {
 }
 export interface ChatSummary { id: string; title: string; topic: string; updated_at: string }
 export interface ChatMessage { role: "user" | "assistant"; text: string; reply?: ApiReply; created_at: string }
+export interface PriceItem {
+  product: string; name: string; unit: string; mine?: { price: number; at: string } | null;
+  markets: { market: string; price: number; n?: number; source: "narx_stat" | "user_op" | "seed"; observed_at: string; sample?: boolean }[];
+}
 export interface Recognized {
   is_document: boolean; document_type: string; title: string; text: string; summary: string; warnings: string[];
   fields: { key: string; label: string; value: string }[];
@@ -162,6 +168,7 @@ export const api = {
   survey: (answer: string) => call<void>("POST", "/me/survey", { body: { question: "why_not_registered", answer } }),
   deleteMe: () => call<void>("DELETE", "/me?confirm=delete"),
   exportUrl: `${BASE}/me/export.csv`,
+  prices: (q = "") => call<{ items: PriceItem[]; sample: boolean; sources: { id: string; title: string; url: string }[] }>("GET", `/prices?q=${encodeURIComponent(q)}&limit=30`),
   palata: (window: 30 | 90) => call<PalataReport>("GET", `/palata/report?window=${window}`),
 };
 

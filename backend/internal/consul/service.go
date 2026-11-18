@@ -13,6 +13,7 @@ import (
 	"finadvisor/internal/calculator"
 	"finadvisor/internal/infrastructure/llm"
 	"finadvisor/internal/infrastructure/pii"
+	"finadvisor/internal/kb"
 	"finadvisor/internal/ledger"
 	"finadvisor/internal/ledger/parse"
 )
@@ -51,6 +52,22 @@ type ChatStore interface {
 	SaveTurn(ctx context.Context, chatID, userID, userText string, reply Reply, meta Meta) error
 }
 
+// WithDeadline sets how long the LLM may take before a template answers instead.
+func (s *Service) WithDeadline(d time.Duration) *Service {
+	if d > 0 {
+		s.deadline = d
+	}
+	return s
+}
+
+// PriceLookup is the read side of the prices module.
+type PriceLookup interface {
+	Lookup(ctx context.Context, userID, query string) (any, error)
+}
+
+// WithPrices enables the market_prices tool.
+func (s *Service) WithPrices(p PriceLookup) *Service { s.prices = p; return s }
+
 // MemoryStore is Consul's memory: facts the user can see, edit and erase.
 type MemoryStore interface {
 	Facts(ctx context.Context, userID string) ([]Fact, error)
@@ -69,6 +86,8 @@ type Service struct {
 	chats    ChatStore
 	limiter  Limiter
 	memory   MemoryStore
+	prices   PriceLookup
+	kb       *kb.KB
 	tpls     map[string]*tpl
 	prompts  map[string]string
 	now      func() time.Time
@@ -78,6 +97,11 @@ type Service struct {
 func NewService(c llm.Client, e calculator.Engine, p ledger.TaxPolicy, l LedgerStore, chats ChatStore, lim Limiter, mem MemoryStore) (*Service, error) {
 	s := &Service{llm: c, engine: e, policy: p, ledger: l, chats: chats, limiter: lim, memory: mem,
 		tpls: map[string]*tpl{}, prompts: map[string]string{}, now: time.Now, deadline: llmDeadline}
+	base, err := kb.Load()
+	if err != nil {
+		return nil, err
+	}
+	s.kb = base
 	for _, lang := range []string{"uz", "ru"} {
 		t, err := loadTemplates(lang)
 		if err != nil {
@@ -167,13 +191,17 @@ func (s *Service) Ask(ctx context.Context, userID string, in AskInput) (Reply, e
 // answer tries the agent and falls back to the topic template with a logged reason.
 func (s *Service) answer(ctx context.Context, userID, lang, text, route, topic string, st ledger.State, today ledger.Today, now time.Time) (Reply, Meta) {
 	sess := newSession(ctx, s.engine, st, today, now)
-	sess.userID, sess.memory = userID, s.memory
+	sess.userID, sess.memory, sess.prices = userID, s.memory, s.prices
 	f := facts{today: today, debtors: sess.debtors, lang: lang}
 	if topic == "loan" {
 		f.loan, _ = safeLoan(ctx, s.engine, today.View.Profit3M, 24, 24)
 	}
+	hits := s.kb.Search(text, lang, 3)
 	template := func(reason string, meta Meta) (Reply, Meta) {
 		r := s.tpls[lang].topicReply(topic, f)
+		if (topic == "" || topic == "general") && len(hits) > 0 {
+			r = s.tpls[lang].kbReply(hits)
+		}
 		r.Fallback = true
 		meta.Fallback = reason
 		slog.InfoContext(ctx, "consul: template answer", "reason", reason, "topic", topic)
@@ -188,7 +216,7 @@ func (s *Service) answer(ctx context.Context, userID, lang, text, route, topic s
 			return template("daily_limit", Meta{})
 		}
 	}
-	reply, meta, err := s.agent(ctx, lang, text, route, topic, sess)
+	reply, meta, err := s.agent(ctx, lang, text, route, topic, sess, hits)
 	if err != nil {
 		reason := "llm_error"
 		switch {
@@ -200,6 +228,8 @@ func (s *Service) answer(ctx context.Context, userID, lang, text, route, topic s
 			reason = "invalid_json"
 		case errors.Is(err, errUnverified):
 			reason = "unverified_number"
+		case errors.Is(err, errUngrounded):
+			reason = "ungrounded"
 		}
 		slog.WarnContext(ctx, "consul: llm answer rejected", "reason", reason, "err", err)
 		return template(reason, meta)
@@ -210,6 +240,7 @@ func (s *Service) answer(ctx context.Context, userID, lang, text, route, topic s
 var (
 	errInvalidReply = errors.New("model reply is not valid Reply JSON")
 	errUnverified   = errors.New("reply contains numbers no tool produced")
+	errUngrounded   = errors.New("reply does not use the computed data or the knowledge it was given")
 )
 
 type modelReply struct {
@@ -232,17 +263,17 @@ var prefetch = map[string][]string{
 	"loan":    {"get_today", "safe_loan"},
 	"debtors": {"list_debtors", "get_today"},
 	"plan":    {"get_today", "get_months", "safe_loan"},
-	"general": {"get_today"},
+	"general": {"get_today", "get_months"},
 }
 
-func (s *Service) agent(parent context.Context, lang, text, route, topic string, sess *session) (Reply, Meta, error) {
+func (s *Service) agent(parent context.Context, lang, text, route, topic string, sess *session, hits []kb.Hit) (Reply, Meta, error) {
 	ctx, cancel := context.WithTimeout(parent, s.deadline)
 	defer cancel()
 	sess.ctx = ctx
 	meta := Meta{Model: s.llm.Model()}
-	user := text
+	user := sess.maskText(text)
 	if route != "" {
-		user = "[screen: " + truncate(route, 40) + "]\n" + text
+		user = "[screen: " + truncate(route, 40) + "]\n" + user
 	}
 	var data strings.Builder
 	// What Consul remembers about this user (they can read and erase it in Me → Memory).
@@ -252,6 +283,19 @@ func (s *Service) agent(parent context.Context, lang, text, route, topic string,
 			for _, f := range known {
 				fmt.Fprintf(&data, "- %s: %s\n", pii.Mask(f.Key), pii.Mask(f.Value))
 			}
+		}
+	}
+	// Curated knowledge (definitions, 2026 tax rules, state support) with its sources.
+	var kbNumbers []float64
+	if len(hits) > 0 {
+		data.WriteString("KNOWLEDGE (curated; quote it, do not add facts of your own):\n")
+		for _, h := range hits {
+			fmt.Fprintf(&data, "- [%s] %s: %s", h.ID, h.Title, h.Text)
+			if h.Unverified {
+				data.WriteString(" (rule to confirm on soliq.uz)")
+			}
+			data.WriteString("\n")
+			kbNumbers = append(kbNumbers, numbersIn(h.Title+" "+h.Text)...)
 		}
 	}
 	for _, name := range prefetch[topic] {
@@ -285,7 +329,14 @@ func (s *Service) agent(parent context.Context, lang, text, route, topic string,
 		}
 		var mr modelReply
 		if err := json.Unmarshal([]byte(llm.ExtractJSON(msg.Content)), &mr); err != nil || strings.TrimSpace(mr.Text) == "" {
-			return Reply{}, meta, errInvalidReply
+			// Some models answer in plain prose instead of the JSON envelope. A plain answer is
+			// still a good answer: it goes through the same checks (numbers, links) and the
+			// topic is the one the parser found. Prose that looks like broken JSON is refused.
+			plain := strings.TrimSpace(msg.Content)
+			if plain == "" || strings.HasPrefix(plain, "{") || strings.HasPrefix(plain, "[") || len([]rune(plain)) > 1200 {
+				return Reply{}, meta, errInvalidReply
+			}
+			mr = modelReply{Text: plain, Topic: topic}
 		}
 		r := Reply{Text: mr.Text, Card: mr.Card, Actions: mr.Actions, Ask: mr.Ask, Sug: mr.Sug, Topic: mr.Topic}
 		r.normalize()
@@ -293,9 +344,15 @@ func (s *Service) agent(parent context.Context, lang, text, route, topic string,
 		// Numbers the user typed may be repeated; everything else must come from a tool.
 		// Domain constants are known facts, not money: the 3-month profit window, the
 		// 30-day obligation horizon, the 30% payment cap, 12 months a year.
-		pool := append(append(append([]float64{}, sess.pool...), numbersIn(text)...), 3, 12, 30)
+		pool := append(append(append(append([]float64{}, sess.pool...), numbersIn(text)...), kbNumbers...), 3, 12, 30)
 		if bad := unverified(r, pool); len(bad) > 0 {
 			return Reply{}, meta, fmt.Errorf("%w: %v", errUnverified, bad)
+		}
+		// An answer that checks out number by number can still be empty talk. For questions about
+		// the user's money it must use at least one computed number; when knowledge was given it
+		// must use that knowledge. Otherwise the (correct) template answers instead.
+		if !usesData(r, topic, sess.pool, hits) {
+			return Reply{}, meta, errUngrounded
 		}
 		r.Text = sess.unmask(r.Text)
 		if r.Card != nil {
@@ -315,8 +372,68 @@ func (s *Service) agent(parent context.Context, lang, text, route, topic string,
 				r.Work = append(r.Work, Work{true, s.tpls[lang].s("tools", tr.Name)})
 			}
 		}
+		for _, h := range hits {
+			if h.Unverified {
+				r.Work = append(r.Work, Work{false, s.tpls[lang].s("kb", "check")})
+			}
+			for _, src := range h.Sources {
+				r.Work = append(r.Work, Work{true, s.tpls[lang].s("kb", "source") + ": " + src.Title + " — " + src.URL})
+			}
+		}
 		r.PendingOp = sess.pending
 		return r, meta, nil
 	}
 	return Reply{}, meta, fmt.Errorf("%w: no final answer after %d steps", errInvalidReply, maxSteps)
+}
+
+// numericTopics are the topics whose answer is a number the code computed.
+var numericTopics = map[string]bool{"spend": true, "loan": true, "tax": true, "profit": true, "debtors": true}
+
+// usesData reports whether the reply is built on what it was given: a computed number for
+// money questions, and the words or numbers of a knowledge snippet when one was retrieved.
+func usesData(r Reply, topic string, pool []float64, hits []kb.Hit) bool {
+	all := r.Text
+	if r.Card != nil {
+		all += " " + r.Card.Value
+		for _, row := range r.Card.Rows {
+			all += " " + row[1]
+		}
+	}
+	if numericTopics[topic] {
+		ok := false
+		for _, v := range numbersIn(all) {
+			if v >= 100 && grounded(v, pool) { // percentages and counts alone do not answer "how much?"
+				ok = true
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	if len(hits) == 0 {
+		return true
+	}
+	words := map[string]bool{}
+	var nums []float64
+	for _, h := range hits {
+		for _, w := range strings.FieldsFunc(strings.ToLower(h.Title+" "+h.Text), func(c rune) bool { return !unicode.IsLetter(c) }) {
+			if len([]rune(w)) >= 5 {
+				words[w] = true
+			}
+		}
+		nums = append(nums, numbersIn(h.Title+" "+h.Text)...)
+	}
+	for _, w := range strings.FieldsFunc(strings.ToLower(all), func(c rune) bool { return !unicode.IsLetter(c) }) {
+		if words[w] {
+			return true
+		}
+	}
+	for _, v := range numbersIn(all) {
+		for _, n := range nums {
+			if v == n {
+				return true
+			}
+		}
+	}
+	return false
 }
