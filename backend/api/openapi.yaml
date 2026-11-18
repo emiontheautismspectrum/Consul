@@ -325,7 +325,7 @@ paths:
         '201': {description: Recorded, content: {application/json: {schema: {$ref: '#/components/schemas/OpResult'}}}}
         '200': {description: Idempotent repeat, content: {application/json: {schema: {$ref: '#/components/schemas/OpResult'}}}}
         '400': {description: idempotency_key_required, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-        '422': {description: "amount_required, kind_invalid, counterparty_required, …", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '422': {description: "kind_invalid, amount_required, amount_too_large, method_required, method_invalid, source_invalid, items_invalid, occurred_at_invalid (outside 2000…tomorrow), counterparty_required, counterparty_too_long, counterparty_invalid, repaid_exceeds_debt", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /ops/{id}:
     parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
     delete:
@@ -355,7 +355,7 @@ paths:
       responses:
         '201': {description: Recorded, content: {application/json: {schema: {$ref: '#/components/schemas/OpResult'}}}}
         '404': {$ref: '#/components/responses/Error'}
-        '422': {$ref: '#/components/responses/Error'}
+        '422': {description: "amount_required, method_invalid, repaid_exceeds_debt", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /debtors/{id}/reminder:
     parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
     get:

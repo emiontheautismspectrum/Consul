@@ -22,6 +22,7 @@ import (
 	"finadvisor/internal/infrastructure/httpx"
 	"finadvisor/internal/infrastructure/llm"
 	"finadvisor/internal/infrastructure/ratelimit"
+	"finadvisor/internal/ledger"
 	"finadvisor/internal/user"
 	"finadvisor/internal/vision"
 	"finadvisor/migrations"
@@ -96,12 +97,17 @@ func run() error {
 		slog.Warn("BASE_URL / AI_API_KEY not set: /advisor/generate will return 503")
 	}
 
+	// Ledger: TaxPolicy comes from the calculator's rules file, one source of truth for rates.
+	ledgerH := ledger.NewHandler(ledger.NewPGRepo(database),
+		ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12})
+
 	// All routes live under /api/v1: modules register relative paths on v1, which is
 	// mounted once. A future v2 is another mux mounted next to it.
 	v1 := http.NewServeMux()
 	authH.Register(v1)
 	calcH.Register(v1, authH.OptionalAuth, authH.RequireAuth)
 	userH.Register(v1, authH.RequireAuth)
+	ledgerH.Register(v1, authH.RequireAuth)
 	advisorH.Register(v1, authH.RequireAuth)
 	visionH.Register(v1, authH.RequireAuth)
 	api.Register(v1)
@@ -111,9 +117,7 @@ func run() error {
 	for _, route := range []string{
 		"POST /auth/otp/send", "POST /auth/otp/verify", "POST /auth/demo",
 		"PUT /me/business", "POST /me/consent/stats", "DELETE /me/consent/stats",
-		"GET /ledger/today", "POST /ops/parse", "GET /ops", "POST /ops", "DELETE /ops/{id}",
-		"GET /debtors", "POST /debtors/{id}/repaid", "GET /debtors/{id}/reminder",
-		"GET /obligations", "POST /obligations", "PATCH /obligations/{id}", "DELETE /obligations/{id}",
+		"POST /ops/parse",
 		"POST /consul/ask", "POST /voice/stt", "POST /voice/tts",
 		"GET /palata/report", "GET /palata/report.csv",
 	} {

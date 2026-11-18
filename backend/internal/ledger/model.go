@@ -50,6 +50,7 @@ type Op struct {
 	Counterparty   *string         `json:"counterparty"`
 	Fiscal         bool            `json:"fiscal"`
 	Source         string          `json:"source"`
+	RawText        string          `json:"-"` // original phrase that produced the op; never sent to clients
 	Items          json.RawMessage `json:"items,omitempty"`
 	OccurredAt     time.Time       `json:"occurred_at"`
 	CreatedAt      time.Time       `json:"-"`
