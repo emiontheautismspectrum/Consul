@@ -274,7 +274,9 @@ func (s *Service) agent(parent context.Context, lang, text, route, topic string,
 		r.normalize()
 		r.sanitize()
 		// Numbers the user typed may be repeated; everything else must come from a tool.
-		pool := append(append([]float64{}, sess.pool...), numbersIn(text)...)
+		// Domain constants are known facts, not money: the 3-month profit window, the
+		// 30-day obligation horizon, the 30% payment cap, 12 months a year.
+		pool := append(append(append([]float64{}, sess.pool...), numbersIn(text)...), 3, 12, 30)
 		if bad := unverified(r, pool); len(bad) > 0 {
 			return Reply{}, meta, fmt.Errorf("%w: %v", errUnverified, bad)
 		}

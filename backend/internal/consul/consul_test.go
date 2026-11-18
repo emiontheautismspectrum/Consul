@@ -280,3 +280,18 @@ func TestPrefetchAnswersInOneRoundTrip(t *testing.T) {
 		t.Errorf("prefetched tool data missing from the question: %s", user)
 	}
 }
+
+func TestDomainConstantsAreGrounded(t *testing.T) {
+	llmc := &script{replies: []llm.Message{
+		{Role: "assistant", Content: `{"text":"Oxirgi 3 oyda o'rtacha foyda **6 000 000** so'm, 30 kunlik to'lovlarni hisobga oling.","topic":"profit"}`},
+	}}
+	s, _ := newSvc(t, llmc)
+	if r := ask(t, s, "foyda qancha?"); r.Fallback {
+		t.Fatalf("3 months / 30 days must not be treated as invented numbers: %+v", r)
+	}
+	llmc = &script{replies: []llm.Message{{Role: "assistant", Content: `{"text":"O'rtacha foyda **7 000 000** so'm.","topic":"profit"}`}}}
+	s, _ = newSvc(t, llmc)
+	if r := ask(t, s, "foyda qancha?"); !r.Fallback {
+		t.Fatalf("an invented amount must still fall back: %+v", r)
+	}
+}
