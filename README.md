@@ -127,7 +127,7 @@ Everything is read from `.env` (see [`.env.example`](.env.example)); secrets are
 ## Known limitations
 
 - `narx.stat.uz` does not answer from our VPS (the IP range is blocked). Prices are fetched on a developer machine and imported: `make prices-push-vps`. Korzinka has no public price API, so it is not connected.
-- Voice needs an `ELEVENLABS_API_KEY`, and ElevenLabs refuses some countries (our VPS egress is in one): set `ELEVENLABS_PROXY_URL` to a proxy in a supported country, otherwise `/voice/*` answers 503 and the UI falls back to typing. SMS delivery is not connected (OTP is demo-only).
+- Voice needs an `ELEVENLABS_API_KEY`, and ElevenLabs refuses some countries (our VPS egress is in one): set `ELEVENLABS_PROXY_URL` to a proxy in a supported country (or run `make voice-tunnel-install` on a machine in one: it opens a reverse SOCKS5 tunnel as a systemd user service, see `deploy/tunnel/`), otherwise `/voice/*` answers 503 and the UI falls back to typing. SMS delivery is not connected (OTP is demo-only).
 - Tax and state-support entries are curated, not automatically synchronised with lex.uz.
 - The frontend still ships a few static screens (Learn, the state-support list in Kredit, plan presets).
 

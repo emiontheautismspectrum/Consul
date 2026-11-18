@@ -126,3 +126,16 @@ prices-seed-vps:
 ## Same, for when the VPS cannot reach narx.stat.uz: fetch from this machine, import on the server
 prices-push-vps:
 	cd backend && go run ./cmd/api prices-fetch | $(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api prices-import'
+
+## Voice from a server ElevenLabs refuses: reverse SOCKS5 tunnel from THIS machine (must be in a served country)
+## and a proxy setting on the VPS. The Docker bridge address is read from the VPS.
+voice-tunnel-install:
+	@test -n "$(DEPLOY_HOST)" || (echo "set DEPLOY_HOST in .env" && exit 1)
+	$(eval BRIDGE := $(shell $(SSH) "docker network inspect $$(basename $(DEPLOY_PATH))_default --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}'"))
+	@test -n "$(BRIDGE)" || (echo "could not read the Docker bridge address on the VPS" && exit 1)
+	mkdir -p $(HOME)/.config/systemd/user
+	sed -e 's/@HOST@/$(DEPLOY_HOST)/' -e 's/@USER@/$(DEPLOY_USER)/' -e 's/@BRIDGE@/$(BRIDGE)/' deploy/tunnel/consul-voice-tunnel.service.in > $(HOME)/.config/systemd/user/consul-voice-tunnel.service
+	$(SSH) 'cd $(DEPLOY_PATH) && (grep -q "^ELEVENLABS_PROXY_URL=" .env && sed -i "s|^ELEVENLABS_PROXY_URL=.*|ELEVENLABS_PROXY_URL=socks5://$(BRIDGE):1080|" .env || echo "ELEVENLABS_PROXY_URL=socks5://$(BRIDGE):1080" >> .env) && docker compose up -d api >/dev/null 2>&1'
+	systemctl --user daemon-reload
+	systemctl --user enable --now consul-voice-tunnel.service
+	@echo "tunnel started; check: systemctl --user status consul-voice-tunnel  (bridge $(BRIDGE))"

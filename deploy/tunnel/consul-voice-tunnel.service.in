@@ -1,0 +1,16 @@
+# User service for the machine that sits in a country ElevenLabs serves (e.g. Uzbekistan).
+# It opens a reverse SOCKS5 proxy on the VPS: the API container reaches it at
+# socks5://@BRIDGE@:1080 and its ElevenLabs calls leave from this machine's IP.
+# Installed by `make voice-tunnel-install`; @HOST@, @USER@ and @BRIDGE@ are filled in there.
+[Unit]
+Description=Consul voice tunnel (reverse SOCKS5 proxy on the VPS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o BatchMode=yes -o StrictHostKeyChecking=yes -R @BRIDGE@:1080 @USER@@@HOST@
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
