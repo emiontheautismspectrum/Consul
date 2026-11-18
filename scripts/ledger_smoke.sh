@@ -63,12 +63,36 @@ CUR=$(out | jq -r .next_cursor)
 [ "$CUR" != null ] && pass "next_cursor present" || fail "no cursor" "$(out)"
 expect "ops page 2" 200 "$URL/api/v1/ops?limit=1&cursor=$CUR"
 
+# P1: bank report, what-if, plan, memory, export, survey.
+expect "bank report" 200 "$URL/api/v1/reports/bank?months=3"
+[ "$(out | jq '.months | length')" = 4 ] && pass "bank report: 3 closed months + the current one" || fail "bank months" "$(out)"
+expect "bank report: months out of range → 400" 400 "$URL/api/v1/reports/bank?months=99"
+expect "what-if loan" 200 -X POST "$URL/api/v1/forecast/whatif" -d '{"kind":"loan","amount":20000000,"annual_rate":24,"term_months":24}'
+[ "$(out | jq '.scenario | length')" = 30 ] && pass "what-if: 30-day series" || fail "what-if" "$(out)"
+expect "what-if: bad kind → 422" 422 -X POST "$URL/api/v1/forecast/whatif" -d '{"kind":"crypto"}'
+expect "plan" 200 -X POST "$URL/api/v1/advisor/plan" -d '{"capital":30000000,"sales":25000000,"rent":2700000,"helper":2000000}'
+[ "$(out | jq .estimated)" = true ] && pass "plan: no history yet → 64% flagged as an assumption" || fail "plan estimated" "$(out)"
+expect "memory: add" 200 -X PUT "$URL/api/v1/memory" -d '{"key":"Maqsad","value":"ikkinchi rasta"}'
+expect "memory: forget" 204 -X DELETE "$URL/api/v1/memory/Maqsad"
+expect "export csv" 200 "$URL/api/v1/me/export.csv"
+head -c 3 /tmp/ledger_smoke.$$ | od -An -tx1 | grep -q "ef bb bf" && pass "CSV starts with a UTF-8 BOM" || fail "no BOM"
+expect "survey" 204 -X POST "$URL/api/v1/me/survey" -d '{"question":"why_not_registered","answer":"fear_tax"}'
+expect "chats list" 200 "$URL/api/v1/chats"
+
 # A second user must not see or delete the first user's data.
 curl -sk -b "$JAR2" -c "$JAR2" -H Content-Type:application/json -o /dev/null -X POST "$URL/api/v1/auth/register" -d "{\"email\":\"$EMAIL2\",\"password\":\"password123\"}"
 code=$(curl -sk -b "$JAR2" -o /tmp/ledger_smoke.$$ -w '%{http_code}' -X DELETE "$URL/api/v1/ops/$OP_ID" || true)
 [ "$code" = 404 ] && pass "foreign DELETE → 404" || fail "foreign DELETE: got $code, want 404"
 code=$(curl -sk -b "$JAR2" -o /tmp/ledger_smoke.$$ -w '%{http_code}' "$URL/api/v1/ledger/today" || true)
 [ "$code" = 200 ] && grep -q '"cash":0' /tmp/ledger_smoke.$$ && pass "foreign today is empty" || fail "foreign today" "$(cat /tmp/ledger_smoke.$$)"
+
+# Account deletion: needs ?confirm=delete, erases everything, the session stops working.
+code=$(curl -sk -b "$JAR2" -c "$JAR2" -o /dev/null -w '%{http_code}' -X DELETE "$URL/api/v1/me" || true)
+[ "$code" = 400 ] && pass "DELETE /me without confirm → 400" || fail "delete without confirm: $code"
+code=$(curl -sk -b "$JAR2" -c "$JAR2" -o /dev/null -w '%{http_code}' -X DELETE "$URL/api/v1/me?confirm=delete" || true)
+[ "$code" = 204 ] && pass "DELETE /me?confirm=delete → 204" || fail "delete account: $code"
+code=$(curl -sk -b "$JAR2" -o /dev/null -w '%{http_code}' "$URL/api/v1/me" || true)
+[ "$code" = 401 ] && pass "the deleted account's session is gone (401)" || fail "me after delete: $code"
 
 rm -f /tmp/ledger_smoke.$$
 echo "All ledger smoke checks passed."

@@ -9,6 +9,7 @@ import (
 
 	"finadvisor/internal/calculator"
 	"finadvisor/internal/infrastructure/llm"
+	"finadvisor/internal/infrastructure/pii"
 	"finadvisor/internal/ledger"
 	"finadvisor/internal/ledger/parse"
 )
@@ -25,6 +26,7 @@ var toolDefs = []llm.Tool{
 	tool("calculate_loan", "Loan schedule summary for a given amount.", `{"type":"object","properties":{"amount":{"type":"number"},"annual_rate":{"type":"number"},"term_months":{"type":"integer"},"method":{"type":"string","enum":["annuity","differentiated"]}},"required":["amount","annual_rate","term_months"]}`),
 	tool("calculate_tax", "Uzbekistan annual tax by regime for a given revenue.", `{"type":"object","properties":{"entity_type":{"type":"string","enum":["ie","self","llc"]},"annual_revenue":{"type":"number"},"annual_expenses":{"type":"number"},"regime":{"type":"string","enum":["auto","turnover","vat6","general"]}},"required":["annual_revenue"]}`),
 	tool("calculate_breakeven", "Break-even and payback for an investment.", `{"type":"object","properties":{"initial_investment":{"type":"number"},"fixed_costs_monthly":{"type":"number"},"price_per_unit":{"type":"number"},"variable_cost_per_unit":{"type":"number"},"expected_units_monthly":{"type":"number"}},"required":["fixed_costs_monthly","price_per_unit","variable_cost_per_unit"]}`),
+	tool("remember_fact", "Save a short fact about the user's business for later (only when the user explicitly asks to remember something: rent day, supplier, goal). The user can see and erase it.", `{"type":"object","properties":{"key":{"type":"string","description":"short label, e.g. Ijara, Taʼminotchi, Maqsad"},"value":{"type":"string","description":"the fact, one short sentence"}},"required":["key","value"]}`),
 	tool("draft_operation", "Prepare (do NOT record) an operation the user asked to write down; the user confirms it in the app.", `{"type":"object","properties":{"kind":{"type":"string","enum":["sale","buy","exp","sup","nas","repaid"]},"amount":{"type":"integer"},"method":{"type":"string","enum":["naqd","karta","none"]},"label":{"type":"string"},"counterparty":{"type":"string"}},"required":["kind","amount"]}`),
 }
 
@@ -40,6 +42,8 @@ type session struct {
 	pending *parse.Draft
 	trace   []ToolTrace
 	pool    []float64
+	userID  string
+	memory  MemoryStore
 }
 
 type ToolTrace struct {
@@ -142,6 +146,23 @@ func (s *session) run(name, args string) (any, error) {
 		r, err := s.engine.Breakeven(s.ctx, in)
 		r.Cashflow = nil
 		return r, err
+	case "remember_fact":
+		var in struct{ Key, Value string }
+		if err := json.Unmarshal([]byte(args), &in); err != nil {
+			return nil, err
+		}
+		// Personal data never goes into memory: names, phones, ids are masked first.
+		in.Key, in.Value = strings.TrimSpace(pii.Mask(in.Key)), strings.TrimSpace(pii.Mask(in.Value))
+		if in.Key == "" || in.Value == "" || len([]rune(in.Key)) > maxKeyRunes || len([]rune(in.Value)) > maxValueRunes {
+			return nil, fmt.Errorf("key 1..%d and value 1..%d characters", maxKeyRunes, maxValueRunes)
+		}
+		if s.memory == nil {
+			return nil, fmt.Errorf("memory is unavailable")
+		}
+		if err := s.memory.PutFact(s.ctx, s.userID, in.Key, in.Value); err != nil {
+			return nil, err
+		}
+		return map[string]any{"saved": true, "key": in.Key, "value": in.Value}, nil
 	case "draft_operation":
 		var d parse.Draft
 		if err := json.Unmarshal([]byte(args), &d); err != nil {

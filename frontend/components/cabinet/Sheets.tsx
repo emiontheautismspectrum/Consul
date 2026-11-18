@@ -6,7 +6,7 @@ import { annuity } from "@/lib/finance";
 import { HISTORY, USER } from "@/lib/demo";
 import { GOALS, payback, planProfit, type Plan } from "@/lib/plan";
 import { VOICE } from "@/lib/cabinet";
-import { api, type Recognized } from "@/lib/api";
+import { api, type BankReport as ApiBankReport, type Recognized } from "@/lib/api";
 import type { OpKind } from "@/lib/ledger";
 import { useStore } from "./Store";
 
@@ -37,7 +37,35 @@ function DocActions() { const t = useT();
   </>;
 }
 
-export function BankReport() { const t = useT(), mln = useMln();
+const MONTH_NAMES = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr"];
+
+/** Bank report from the server: closed months, the current one marked partial, average of the closed ones. */
+function BankReportLive() { const t = useT(), mln = useMln();
+  const [r, setR] = useState<ApiBankReport | null>(null), [err, setErr] = useState(false);
+  useEffect(() => { api.bankReport(3).then(setR).catch(() => setErr(true)); }, []);
+  if (err) return <p className="note">{t("Hisobotni yuklab boʻlmadi. Birozdan keyin qayta urinib koʻring.")}</p>;
+  if (!r) return <p className="note">{t("Hisoblayapman…")}</p>;
+  const L = 34e6, p = annuity(L, 24, 0.02), avg = r.avg_profit || 0;
+  const name = (m: string, partial: boolean) => t(MONTH_NAMES[+m.slice(5, 7) - 1]) + (partial ? "*" : "");
+  return <>
+    <div className="doc">
+      <h5>{t("Moliyaviy hisobot · bank uchun")}</h5>
+      <p className="m">{r.business.trade} · {r.business.status.toUpperCase()} · {today()}</p>
+      <table><thead><tr><th>{t("Oy")}</th><th>{t("Daromad")}</th><th>{t("Xarajat")}</th><th>{t("Foyda")}</th></tr></thead>
+        <tbody>{r.months.map(m => <tr key={m.month}><td>{name(m.month, m.partial)}</td><td>{mln(m.income)}</td><td>{mln(m.expense)}</td><td>{mln(m.profit)}</td></tr>)}</tbody></table>
+      {[[t("Oʻrtacha oylik foyda"), fmt(avg)], [t("Sizga qarz (nasiya)"), fmt(r.owed_to_me)], [t("Taʼminotchiga qarz"), fmt(r.owed_to_suppliers)], [t("Soʻralayotgan kredit"), t("{p0} · 24 oy", { p0: fmt(L) })], [t("Oylik toʻlov (24% namuna)"), avg > 0 ? t("~{p0} · foydaning {p1}%", { p0: fmt(roundK(p)), p1: Math.round((p / avg) * 100) }) : "—"]].map(([a, b]) => <div className="kv2" key={a}><span>{a}</span><b>{b}</b></div>)}
+      <p className="ft">{t("* joriy oy hali tugamagan — oʻrtachaga kirmaydi. Consul yozuvlari asosida; bank oʻz tekshiruvini oʻtkazadi.")}</p>
+    </div>
+    <DocActions />
+  </>;
+}
+
+export function BankReport() {
+  const s = useStore();
+  return s.remote ? <BankReportLive /> : <BankReportDemo />;
+}
+
+function BankReportDemo() { const t = useT(), mln = useMln();
   const { view: v, ledger: l } = useStore();
   const M = [...HISTORY.map(h => [h.month, h.income, h.expenses] as const), [t("Noyabr*"), l.money.income, v.expenses] as const];
   const avg = roundK(M.reduce((s, m) => s + m[1] - m[2], 0) / 3), L = 34e6, p = annuity(L, 24, 0.02);
@@ -179,14 +207,16 @@ function CameraLive() { const t = useT();
     api.photo(f, s.lang).then(r => { setRes(r); setSt("done"); }).catch(() => setSt("err"));
   };
   const field = (k: string) => res?.fields.find(f => f.key === k)?.value || "";
-  const total = +(field("total_amount") || field("total") || "").replace(/\D/g, "") || 0;
-  const supplier = field("supplier") || field("seller");
+  // The server proposes the purchase (draft_ops); the fields are only a fallback.
+  const draft = res?.draft_ops?.[0];
+  const total = draft?.amount || +(field("total_amount") || field("total") || "").replace(/\D/g, "") || 0;
+  const supplier = draft?.counterparty || field("supplier") || field("seller");
   if (st === "done" && res) return <>
     <h4>{res.title || t("Chekdan oʻqildi")}</h4>
     <div className="list rcl">{res.fields.slice(0, 8).map(f => <div className="li" key={f.key}><span>{f.label}</span><b className="num">{f.value}</b></div>)}</div>
     {res.warnings.length > 0 && <p className="note" style={{ margin: "8px 0 0" }}>{res.warnings[0]}</p>}
     <div className="vb" style={{ marginTop: 12 }}><button className="btn sec" onClick={() => setSt("pick")}>{t("Qayta")}</button>
-      <button className="btn" disabled={!total} onClick={() => { s.closeSheet(); s.confirmDraft({ kind: "buy", amount: total, method: "naqd", counterparty: supplier || undefined, label: res.title.slice(0, 60), source: "photo" }); }}>{t("Xarid deb yozish")}</button></div>
+      <button className="btn" disabled={!total} onClick={() => { s.closeSheet(); s.confirmDraft(draft ? { ...draft } : { kind: "buy", amount: total, method: "naqd", counterparty: supplier || undefined, label: res.title.slice(0, 60), source: "photo" }); }}>{t("Xarid deb yozish")}</button></div>
   </>;
   return <>
     <h4>{t("Chek yoki nakladnoy")}</h4>

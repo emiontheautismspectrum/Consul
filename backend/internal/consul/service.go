@@ -51,6 +51,12 @@ type ChatStore interface {
 	SaveTurn(ctx context.Context, chatID, userID, userText string, reply Reply, meta Meta) error
 }
 
+// MemoryStore is Consul's memory: facts the user can see, edit and erase.
+type MemoryStore interface {
+	Facts(ctx context.Context, userID string) ([]Fact, error)
+	PutFact(ctx context.Context, userID, key, value string) error
+}
+
 type Limiter interface {
 	Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, int, error)
 }
@@ -62,14 +68,15 @@ type Service struct {
 	ledger   LedgerStore
 	chats    ChatStore
 	limiter  Limiter
+	memory   MemoryStore
 	tpls     map[string]*tpl
 	prompts  map[string]string
 	now      func() time.Time
 	deadline time.Duration
 }
 
-func NewService(c llm.Client, e calculator.Engine, p ledger.TaxPolicy, l LedgerStore, chats ChatStore, lim Limiter) (*Service, error) {
-	s := &Service{llm: c, engine: e, policy: p, ledger: l, chats: chats, limiter: lim,
+func NewService(c llm.Client, e calculator.Engine, p ledger.TaxPolicy, l LedgerStore, chats ChatStore, lim Limiter, mem MemoryStore) (*Service, error) {
+	s := &Service{llm: c, engine: e, policy: p, ledger: l, chats: chats, limiter: lim, memory: mem,
 		tpls: map[string]*tpl{}, prompts: map[string]string{}, now: time.Now, deadline: llmDeadline}
 	for _, lang := range []string{"uz", "ru"} {
 		t, err := loadTemplates(lang)
@@ -160,6 +167,7 @@ func (s *Service) Ask(ctx context.Context, userID string, in AskInput) (Reply, e
 // answer tries the agent and falls back to the topic template with a logged reason.
 func (s *Service) answer(ctx context.Context, userID, lang, text, route, topic string, st ledger.State, today ledger.Today, now time.Time) (Reply, Meta) {
 	sess := newSession(ctx, s.engine, st, today, now)
+	sess.userID, sess.memory = userID, s.memory
 	f := facts{today: today, debtors: sess.debtors, lang: lang}
 	if topic == "loan" {
 		f.loan, _ = safeLoan(ctx, s.engine, today.View.Profit3M, 24, 24)
@@ -237,6 +245,15 @@ func (s *Service) agent(parent context.Context, lang, text, route, topic string,
 		user = "[screen: " + truncate(route, 40) + "]\n" + text
 	}
 	var data strings.Builder
+	// What Consul remembers about this user (they can read and erase it in Me → Memory).
+	if s.memory != nil {
+		if known, err := s.memory.Facts(ctx, sess.userID); err == nil && len(known) > 0 {
+			data.WriteString("MEMORY (facts the user told Consul):\n")
+			for _, f := range known {
+				fmt.Fprintf(&data, "- %s: %s\n", pii.Mask(f.Key), pii.Mask(f.Value))
+			}
+		}
+	}
 	for _, name := range prefetch[topic] {
 		fmt.Fprintf(&data, "%s: %s\n", name, sess.exec(name, "{}"))
 	}

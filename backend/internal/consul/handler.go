@@ -21,12 +21,115 @@ type Cache interface {
 type Handler struct {
 	svc   *Service
 	cache Cache
+	repo  *PGRepo
 }
 
-func NewHandler(s *Service, c Cache) *Handler { return &Handler{svc: s, cache: c} }
+func NewHandler(s *Service, c Cache, repo *PGRepo) *Handler {
+	return &Handler{svc: s, cache: c, repo: repo}
+}
 
 func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
 	mux.Handle("POST /consul/ask", reqAuth(http.HandlerFunc(h.ask)))
+	mux.Handle("GET /chats", reqAuth(http.HandlerFunc(h.chats)))
+	mux.Handle("GET /chats/{id}/messages", reqAuth(http.HandlerFunc(h.messages)))
+	mux.Handle("DELETE /chats/{id}", reqAuth(http.HandlerFunc(h.deleteChat)))
+	mux.Handle("GET /memory", reqAuth(http.HandlerFunc(h.memory)))
+	mux.Handle("PUT /memory", reqAuth(http.HandlerFunc(h.putMemory)))
+	mux.Handle("DELETE /memory/{key}", reqAuth(http.HandlerFunc(h.deleteMemory)))
+	mux.Handle("DELETE /memory", reqAuth(http.HandlerFunc(h.clearMemory)))
+}
+
+func (h *Handler) chats(w http.ResponseWriter, r *http.Request) {
+	limit, _ := httpx.Page(r, 30, 100)
+	items, err := h.repo.ListChats(r.Context(), httpx.UserID(r.Context()), limit)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) messages(w http.ResponseWriter, r *http.Request) {
+	items, err := h.repo.ChatMessages(r.Context(), httpx.UserID(r.Context()), r.PathValue("id"))
+	if errors.Is(err, ErrChatNotFound) {
+		httpx.Error(w, http.StatusNotFound, "not_found", "chat not found")
+		return
+	}
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) deleteChat(w http.ResponseWriter, r *http.Request) {
+	err := h.repo.DeleteChat(r.Context(), httpx.UserID(r.Context()), r.PathValue("id"))
+	if errors.Is(err, ErrChatNotFound) {
+		httpx.Error(w, http.StatusNotFound, "not_found", "chat not found")
+		return
+	}
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) memory(w http.ResponseWriter, r *http.Request) {
+	items, err := h.repo.Facts(r.Context(), httpx.UserID(r.Context()))
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+const (
+	maxKeyRunes   = 60
+	maxValueRunes = 300
+)
+
+func (h *Handler) putMemory(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Key, Value string }
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	in.Key, in.Value = strings.TrimSpace(in.Key), strings.TrimSpace(in.Value)
+	switch {
+	case in.Key == "" || len([]rune(in.Key)) > maxKeyRunes:
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "key_invalid", "key", "1..60 characters")
+		return
+	case in.Value == "" || len([]rune(in.Value)) > maxValueRunes:
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "value_invalid", "value", "1..300 characters")
+		return
+	}
+	err := h.repo.PutFact(r.Context(), httpx.UserID(r.Context()), in.Key, in.Value)
+	if errors.Is(err, ErrTooManyFacts) {
+		httpx.Error(w, http.StatusUnprocessableEntity, "too_many_facts", "Consul remembers at most 50 facts; forget one first")
+		return
+	}
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	h.memory(w, r)
+}
+
+func (h *Handler) deleteMemory(w http.ResponseWriter, r *http.Request) {
+	if err := h.repo.DeleteFact(r.Context(), httpx.UserID(r.Context()), r.PathValue("key")); err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) clearMemory(w http.ResponseWriter, r *http.Request) {
+	if err := h.repo.DeleteAllFacts(r.Context(), httpx.UserID(r.Context())); err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 const idemTTL = 10 * time.Minute

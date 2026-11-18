@@ -22,6 +22,13 @@ type Repo interface {
 	ByEmail(ctx context.Context, email string) (User, error)
 }
 
+// Deleter removes a user and, by ON DELETE CASCADE, everything they own (operations, debts,
+// obligations, chats, memory, plans, survey answers). Aggregated Chamber snapshots are
+// anonymous and stay.
+type Deleter interface {
+	DeleteUser(ctx context.Context, id string) error
+}
+
 // PhoneRepo is the phone-login part of the user store.
 type PhoneRepo interface {
 	// FindOrCreateByPhone returns the user id and whether the user was just created.
@@ -65,4 +72,9 @@ func (r *PGRepo) FindOrCreateByPhone(ctx context.Context, phone, lang string) (s
 		 ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET phone = EXCLUDED.phone
 		 RETURNING id, (xmax = 0)`, phone, lang).Scan(&id, &created)
 	return id, created, err
+}
+
+func (r *PGRepo) DeleteUser(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, id)
+	return err
 }

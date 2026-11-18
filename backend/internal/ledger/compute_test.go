@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -271,5 +272,84 @@ func TestYTDBefore(t *testing.T) {
 	m := Compute(demo().State, demoNow, policy(t)).Month
 	if m.YTDBefore != 90_000_000 { // Aug + Sep + Oct income (30 mln each)
 		t.Errorf("ytd_before = %d, want 90 000 000", m.YTDBefore)
+	}
+}
+
+func TestBankReport(t *testing.T) {
+	r := Bank(demo().State, demoNow, 3, policy(t))
+	if len(r.Months) != 4 || r.Months[0].Month != "2026-08" || !r.Months[3].Partial || r.Months[2].Partial {
+		t.Fatalf("months = %+v", r.Months)
+	}
+	if r.AvgProfit != 6_000_000 { // closed months only; the partial November is excluded
+		t.Errorf("avg profit = %d, want 6 000 000", r.AvgProfit)
+	}
+	if r.Months[3].Income != 50_000_000 || r.OwedToMe != 1_700_000 || r.OwedToSupplier != 3_100_000 || r.TaxThisMonth != 500_000 {
+		t.Errorf("report = %+v", r)
+	}
+	if got := len(Bank(demo().State, demoNow, 99, policy(t)).Months); got != 13 {
+		t.Errorf("months must be capped at 12 (+ current): %d", got)
+	}
+}
+
+func TestWhatIf(t *testing.T) {
+	st, p := demo().State, policy(t)
+	base := Compute(st, demoNow, p).Forecast
+
+	buy, errc := WhatIf(st, demoNow, WhatIfInput{Kind: "buy", Amount: 15_000_000}, p)
+	if errc != "" || buy.Scenario[0].Balance != base[0].Balance-15_000_000 || buy.Scenario[29].Balance != base[29].Balance-15_000_000 {
+		t.Fatalf("buy: %q %+v", errc, buy.Scenario[:1])
+	}
+	if buy.Verdict != "short" || buy.Lowest.Balance >= 0 || buy.LowestDay < 1 {
+		t.Errorf("15 mln from 12 mln cash must run short: %+v", buy)
+	}
+	// Instalments: 8 mln now and 7 mln on day 18 is safe only if the balance covers it.
+	split, _ := WhatIf(st, demoNow, WhatIfInput{Kind: "buy", Payments: []Payment{{Day: 1, Amount: -8_000_000}, {Day: 18, Amount: -7_000_000}}}, p)
+	if split.Scenario[16].Balance != base[16].Balance-8_000_000 || split.Scenario[17].Balance != base[17].Balance-15_000_000 {
+		t.Errorf("split payments: %d %d", split.Scenario[16].Balance-base[16].Balance, split.Scenario[17].Balance-base[17].Balance)
+	}
+
+	helper, _ := WhatIf(st, demoNow, WhatIfInput{Kind: "helper", Amount: 2_000_000}, p)
+	if helper.Scenario[28].Balance != base[28].Balance || helper.Scenario[29].Balance != base[29].Balance-2_000_000 {
+		t.Errorf("first salary must land on day 30 only")
+	}
+	up, _ := WhatIf(st, demoNow, WhatIfInput{Kind: "helper", Amount: 2_000_000, UpliftPct: 10}, p)
+	if up.Scenario[29].Balance <= helper.Scenario[29].Balance {
+		t.Error("an uplift must improve the scenario")
+	}
+
+	loan, _ := WhatIf(st, demoNow, WhatIfInput{Kind: "loan", Amount: 34_000_000, AnnualRate: 24, TermMonths: 24}, p)
+	pay := int64(math.Round(AnnuityPayment(34_000_000, 24, 24)))
+	if pay != 1_797_617 {
+		t.Fatalf("annuity = %d, want 1 797 617", pay)
+	}
+	if loan.Scenario[0].Balance != base[0].Balance+34_000_000 || loan.Scenario[29].Balance != base[29].Balance+34_000_000-pay {
+		t.Errorf("loan: day1 %+d day30 %+d", loan.Scenario[0].Balance-base[0].Balance, loan.Scenario[29].Balance-base[29].Balance)
+	}
+
+	for _, bad := range []WhatIfInput{{Kind: "crypto"}, {Kind: "helper"}, {Kind: "loan"},
+		{Kind: "buy", Payments: []Payment{{Day: 40, Amount: -1}}}} {
+		if _, c := WhatIf(st, demoNow, bad, p); c == "" {
+			t.Errorf("%+v accepted", bad)
+		}
+	}
+}
+
+func TestPlanFromHistory(t *testing.T) {
+	r := Plan(demo().State, demoNow, PlanInput{Capital: 30_000_000, Sales: 25_000_000, Rent: 2_700_000, Helper: 2_000_000})
+	// cost share from the 3 closed months: 54 mln purchases / 90 mln income = 60%
+	if r.CogsPct != 60 || r.Estimated {
+		t.Fatalf("cogs = %v estimated %v", r.CogsPct, r.Estimated)
+	}
+	if r.Base.Profit != 5_300_000 || *r.Base.PaybackMonths != 6 || *r.SalesDown.PaybackMonths != 10 || *r.RentUp.PaybackMonths != 7 {
+		t.Errorf("plan = %+v %+v %+v", r.Base, r.SalesDown, r.RentUp)
+	}
+	// No history: the 64% assumption is flagged; a loss-making plan never pays back.
+	empty := Plan(State{}, demoNow, PlanInput{Capital: 1_000_000, Sales: 1_000_000, Rent: 5_000_000})
+	if !empty.Estimated || empty.CogsPct != 64 || empty.Base.PaybackMonths != nil {
+		t.Errorf("empty = %+v", empty)
+	}
+	c := 50.0
+	if r := Plan(demo().State, demoNow, PlanInput{Capital: 10, Sales: 100, CogsPct: &c}); r.CogsPct != 50 || r.Estimated {
+		t.Errorf("explicit cogs ignored: %+v", r)
 	}
 }

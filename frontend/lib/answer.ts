@@ -1,7 +1,7 @@
 /** Template answers for the Consul chat. Code does the math; words are fixed templates until the LLM is connected. */
 import { fmt, mln as mlnUz, roundK } from "./format";
 import { annuity, safeLoan } from "./finance";
-import { PROFIT_3M, type Ledger, type View } from "./ledger";
+import { profit3m, type Ledger, type View } from "./ledger";
 import { amount, norm } from "./parse";
 
 export type Action = { label: string; href?: string; cx?: string; run?: "why" | "bankReport" | "planWizard" | "planReport"; primary?: boolean };
@@ -38,7 +38,7 @@ const RU_TERMS: Record<string, RegExp> = { stavka: /ставк/, marja: /мар�
 export function answer(raw: string, c: Ctx): { reply: Reply; topic: Topic } {
   const T = c.t ?? ident, mln = (n: number) => mlnUz(n).replace(/mlrd|mln/, w => T(w));
   let t = norm(raw);
-  const a = amount(t), v = c.view, m = c.ledger.money;
+  const a = amount(t), v = c.view, m = c.ledger.money, PROFIT_3M = profit3m(c.ledger);
   let last = c.last;
   const R = (reply: Reply, topic: Topic = last) => ({ reply, topic });
   if (/pdf|hisobot|отчёт|отчет/.test(t)) return R({ text: T("Bank uchun hisobot tayyor: daromad, foyda, soliq, qarzlar — 3 oy."), actions: [{ label: T("Hisobotni ochish"), run: "bankReport", primary: true }] });

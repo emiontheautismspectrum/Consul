@@ -27,6 +27,26 @@ func (f fakeLedger) Counterparties(context.Context, string) ([]parse.Known, erro
 type memChats struct {
 	mu    sync.Mutex
 	turns []Meta
+	facts map[string]string
+}
+
+func (m *memChats) Facts(context.Context, string) ([]Fact, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Fact
+	for k, v := range m.facts {
+		out = append(out, Fact{Key: k, Value: v})
+	}
+	return out, nil
+}
+func (m *memChats) PutFact(_ context.Context, _, k, v string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.facts == nil {
+		m.facts = map[string]string{}
+	}
+	m.facts[k] = v
+	return nil
 }
 
 func (m *memChats) EnsureChat(_ context.Context, _, chatID, _, _ string) (string, error) {
@@ -84,7 +104,7 @@ func newSvc(t *testing.T, c llm.Client) (*Service, *memChats) {
 	}
 	chats := &memChats{}
 	s, err := NewService(c, calculator.NewService(rules, nil), ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12},
-		fakeLedger{ledger.DemoSeed(testNow)}, chats, nil)
+		fakeLedger{ledger.DemoSeed(testNow)}, chats, nil, chats)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,5 +313,28 @@ func TestDomainConstantsAreGrounded(t *testing.T) {
 	s, _ = newSvc(t, llmc)
 	if r := ask(t, s, "foyda qancha?"); !r.Fallback {
 		t.Fatalf("an invented amount must still fall back: %+v", r)
+	}
+}
+
+func TestRememberFactToolAndMemoryInContext(t *testing.T) {
+	llmc := &script{replies: []llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{call("1", "remember_fact", `{"key":"Maqsad","value":"ikkinchi rasta ochish, tel +998901234567"}`)}},
+		{Role: "assistant", Content: `{"text":"Eslab qoldim.","topic":"general"}`},
+	}}
+	s, chats := newSvc(t, llmc)
+	r := ask(t, s, "ikkinchi rasta ochmoqchiman, eslab qol")
+	if r.Fallback || chats.facts["Maqsad"] == "" {
+		t.Fatalf("fact not saved: %+v facts=%v", r, chats.facts)
+	}
+	if strings.Contains(chats.facts["Maqsad"], "901234567") {
+		t.Errorf("phone number saved to memory: %q", chats.facts["Maqsad"])
+	}
+	// The next question carries the memory, masked.
+	llmc2 := &script{replies: []llm.Message{{Role: "assistant", Content: `{"text":"Yaxshi.","topic":"general"}`}}}
+	s2, chats2 := newSvc(t, llmc2)
+	chats2.facts = map[string]string{"Ijara": "3 000 000, har oy 5-sanada"}
+	ask(t, s2, "salom")
+	if user := llmc2.seen[0][1].Content; !strings.Contains(user, "MEMORY") || !strings.Contains(user, "Ijara") {
+		t.Errorf("memory missing from the question: %s", user)
 	}
 }

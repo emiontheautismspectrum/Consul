@@ -241,6 +241,7 @@ func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
 	mux.Handle("DELETE /me/consent", reqAuth(http.HandlerFunc(h.withdraw)))
 	mux.Handle("GET /me/stats", reqAuth(http.HandlerFunc(h.stats)))
 	mux.Handle("PUT /me/business", reqAuth(http.HandlerFunc(h.putBusiness)))
+	mux.Handle("POST /me/survey", reqAuth(http.HandlerFunc(h.survey)))
 	mux.Handle("POST /me/consent/stats", reqAuth(http.HandlerFunc(h.statsConsent(true))))
 	mux.Handle("DELETE /me/consent/stats", reqAuth(http.HandlerFunc(h.statsConsent(false))))
 }
@@ -372,4 +373,47 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, s)
+}
+
+var surveyAnswers = map[string]bool{"fear_tax": true, "complex_docs": true, "no_benefit": true, "other": true}
+
+// SetSurveyAnswer keeps one answer per user and question (the latest).
+func (r *Repo) SetSurveyAnswer(ctx context.Context, id, question, answer string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM survey_answers WHERE user_id = $1 AND question = $2`, id, question); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO survey_answers (user_id, question, answer) VALUES ($1, $2, $3)`, id, question, answer); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// survey records "why don't you register?" for the Chamber report (shares only, n >= 5).
+func (h *Handler) survey(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Question string `json:"question"`
+		Answer   string `json:"answer"`
+	}
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if in.Question != "why_not_registered" {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "question_invalid", "question", "unknown question")
+		return
+	}
+	if !surveyAnswers[in.Answer] {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "answer_invalid", "answer", "fear_tax, complex_docs, no_benefit or other")
+		return
+	}
+	if err := h.repo.SetSurveyAnswer(r.Context(), httpx.UserID(r.Context()), in.Question, in.Answer); err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -95,6 +95,7 @@ func run() error {
 		WithAttemptGuard(rdb) // per-account login lockout
 	authH := auth.NewHandler(authSvc, jwtIssuer, auth.CookieConfig{Secure: cfg.CookieSecure, Domain: cfg.CookieDomain})
 	authRepo := auth.NewPGRepo(database)
+	authH.WithAccountDeletion(authRepo)
 
 	// Calculator
 	engine := calculator.NewService(rules, rdb)
@@ -123,12 +124,13 @@ func run() error {
 	ledgerH := ledger.NewHandler(ledgerRepo, ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12})
 
 	// Consul chat: the same LLM gateway, ledger data through interfaces, templates as fallback.
+	consulRepo := consul.NewPGRepo(database)
 	consulSvc, err := consul.NewService(llmClient, engine, ledger.TaxPolicy{Turnover: rules.TurnoverTax, VAT6Pct: 6, VAT12Pct: 12},
-		ledgerRepo, consul.NewPGRepo(database), rdb)
+		ledgerRepo, consulRepo, rdb, consulRepo)
 	if err != nil {
 		return err
 	}
-	consulH := consul.NewHandler(consulSvc, rdb)
+	consulH := consul.NewHandler(consulSvc, rdb, consulRepo)
 
 	// Voice (VoiceLab). Without a key every call answers 503 voice_unavailable and the UI
 	// falls back to text input.

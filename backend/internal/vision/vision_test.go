@@ -155,3 +155,34 @@ func TestHandler(t *testing.T) {
 		t.Errorf("huge file: %d", rec.Code)
 	}
 }
+
+func TestBuildDrafts(t *testing.T) {
+	doc := func(typ string, fields ...Field) *Result {
+		return &Result{IsDocument: true, DocumentType: typ, Title: "Счёт-фактура № 147", Fields: fields, Text: "Оплата наличными"}
+	}
+	r := doc("invoice", Field{Key: "total_amount", Value: "14 000 000 сум"}, Field{Key: "supplier", Value: "ООО Toshkent Savdo"})
+	d := BuildDrafts(r)
+	if len(d) != 1 || d[0].Kind != "buy" || d[0].Amount != 14_000_000 || d[0].Method != "naqd" || d[0].Counterparty != "ООО Toshkent Savdo" || d[0].Source != "photo" {
+		t.Fatalf("draft = %+v", d)
+	}
+	for in, want := range map[string]int64{"14,000,000.00 UZS": 14_000_000, "1500000": 1_500_000, "3 040 000 so'm": 3_040_000, "Jami: 750 000": 750_000, "abc": 0} {
+		if got := parseAmount(in); got != want {
+			t.Errorf("parseAmount(%q) = %d, want %d", in, got, want)
+		}
+	}
+	card := doc("receipt", Field{Key: "total", Value: "99 000"})
+	card.Text = "Karta orqali to'landi, QR"
+	if d := BuildDrafts(card); len(d) != 1 || d[0].Method != "karta" || !d[0].Fiscal {
+		t.Errorf("card + QR receipt: %+v", d)
+	}
+	if d := BuildDrafts(doc("passport", Field{Key: "total", Value: "1000"})); d != nil {
+		t.Errorf("a passport must not produce an operation: %+v", d)
+	}
+	noTotal := doc("invoice", Field{Key: "supplier", Value: "X"})
+	if d := BuildDrafts(noTotal); d != nil || len(noTotal.Warnings) == 0 {
+		t.Errorf("missing total: %+v warnings %v", d, noTotal.Warnings)
+	}
+	if d := BuildDrafts(&Result{IsDocument: false, DocumentType: "invoice"}); d != nil {
+		t.Error("a non-document must not produce an operation")
+	}
+}

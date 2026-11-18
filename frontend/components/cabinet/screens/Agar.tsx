@@ -1,7 +1,8 @@
 "use client";
 import { useT, tk } from "@/components/I18n";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fmt } from "@/lib/format";
+import { api, type WhatIfInput, type WhatIfResult } from "@/lib/api";
 import { useStore } from "../Store";
 import { Screen } from "./common";
 
@@ -15,18 +16,39 @@ const SC: Record<string, { fx: Fx; opts?: [string, string, string][] }> = {
   loan: { fx: i => 34e6 - (i >= 30 ? 1_797_000 : 0), opts: [[tk("34 mln, 24 oy"), tk("toʻlov 1,8 mln — foydaning 30%"), "loan"], [tk("20 mln, 24 oy"), tk("toʻlov 1,06 mln — 18%"), "loan20"]] },
   loan20: { fx: i => 20e6 - (i >= 30 ? 1_057_000 : 0) },
 };
+/** What each option means for the server forecast (explicit cash flows, no invented revenue except the helper's uplift). */
+const SERVER: Record<string, WhatIfInput> = {
+  buy: { kind: "buy", amount: 15e6 },
+  split: { kind: "buy", payments: [{ day: 1, amount: -8e6 }, { day: 18, amount: -7e6 }] },
+  ten: { kind: "buy", amount: 10e6 },
+  help: { kind: "helper", amount: 2e6, uplift_pct: 10 },
+  half: { kind: "helper", amount: 1e6, uplift_pct: 5 },
+  loan: { kind: "loan", amount: 34e6, annual_rate: 24, term_months: 24 },
+  loan20: { kind: "loan", amount: 20e6, annual_rate: 24, term_months: 24 },
+};
 const MON = [tk("yan"), tk("fev"), tk("mar"), tk("apr"), tk("may"), tk("iyun"), tk("iyul"), tk("avg"), tk("sen"), tk("okt"), tk("noy"), tk("dek")];
 
 export default function Agar() { const t = useT();
-  const { ledger: l, view: v } = useStore();
+  const s = useStore(), { ledger: l, view: v } = s;
   const [q, setQ] = useState("buy"), [o, setO] = useState("buy");
-  const base = useMemo(() => Array.from({ length: 31 }, (_, i) => v.cash + i * 200_000 - (i >= 17 ? l.money.rent : 0) - (i >= 22 ? l.money.supplier : 0) - (i >= 27 ? v.tax : 0)), [l, v]);
-  const sc = base.map((x, i) => x + SC[o].fx(i));
+  const [wi, setWi] = useState<{ key: string; res: WhatIfResult } | null>(null);
+  const cash = v.cash, remote = s.remote;
+  useEffect(() => {
+    if (!remote) return;
+    let on = true;
+    api.whatIf(SERVER[o]).then(res => { if (on) setWi({ key: o, res }); }).catch(() => { if (on) setWi(null); });
+    return () => { on = false; };
+  }, [o, remote, cash]);
+  const live = remote && wi && wi.key === o ? wi.res : null;
+  const localBase = useMemo(() => Array.from({ length: 31 }, (_, i) => v.cash + i * 200_000 - (i >= 17 ? l.money.rent : 0) - (i >= 22 ? l.money.supplier : 0) - (i >= 27 ? v.tax : 0)), [l, v]);
+  // Server: today's cash, then the 30-day forecast from the user's own ledger.
+  const base = live ? [v.cash, ...live.baseline.map(p => p.balance)] : localBase;
+  const sc = live ? [v.cash, ...live.scenario.map(p => p.balance)] : localBase.map((x, i) => x + SC[o].fx(i));
   const all = [...base, ...sc, 0, v.reserve], mx = Math.max(...all), mn = Math.min(...all), W = 600, H = 170, P = 10;
   const y = (x: number) => P + (H - 2 * P) * (1 - (x - mn) / (mx - mn || 1)), xx = (i: number) => i * (W / 30);
   const pl = (a: number[]) => a.map((x, i) => `${xx(i).toFixed(1)},${y(x).toFixed(1)}`).join(" ");
   let mi = 0; sc.forEach((x, i) => { if (x < sc[mi]) mi = i; });
-  const low = sc[mi], d = new Date(2026, 10, 18 + mi), ds = t("{d}-{m}", { d: d.getDate(), m: t(MON[d.getMonth()]) });
+  const low = sc[mi], d = live ? new Date(live.lowest.date + "T12:00:00") : new Date(2026, 10, 18 + mi), ds = t("{d}-{m}", { d: d.getDate(), m: t(MON[d.getMonth()]) });
   const verdict = low < 0 ? { c: "v-e", b: t("{p0}: pul {p1} soʻmga yetmaydi", { p0: ds, p1: fmt(-low) }), t: t("Bu holda ijara yoki taʼminotchiga toʻlov kechikadi. Variantlarni koʻring.") }
     : low < v.reserve ? { c: "v-w", b: t("Mumkin, lekin {p0} zaxira {p1} gacha tushadi", { p0: ds, p1: fmt(low) }), t: t("Kutilmagan xarajat chiqsa — qiyin boʻladi.") }
       : { c: "v-ok", b: t("Xavfsiz. Eng past nuqta — {p0}: {p1}", { p0: ds, p1: fmt(low) }), t: t("Zaxira saqlanadi, toʻlovlar oʻz vaqtida.") };

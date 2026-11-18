@@ -20,6 +20,7 @@ type Handler struct {
 	// Phone login (optional until configured).
 	otp     *OTP
 	phones  PhoneRepo
+	deleter Deleter
 	profile func(ctx context.Context, userID string) (any, error)
 
 	// Demo login: enabled only with APP_ENV=demo.
@@ -33,6 +34,9 @@ func (h *Handler) WithPhoneLogin(o *OTP, phones PhoneRepo, profile func(context.
 	h.otp, h.phones, h.profile = o, phones, profile
 	return h
 }
+
+// WithAccountDeletion enables DELETE /me.
+func (h *Handler) WithAccountDeletion(d Deleter) *Handler { h.deleter = d; return h }
 
 // WithDemo enables POST /auth/demo for the given phone; reset restores its reference data.
 func (h *Handler) WithDemo(phone string, reset func(context.Context, string) error) *Handler {
@@ -52,6 +56,29 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/otp/send", h.otpSend)
 	mux.HandleFunc("POST /auth/otp/verify", h.otpVerify)
 	mux.HandleFunc("POST /auth/demo", h.demo)
+	mux.Handle("DELETE /me", h.RequireAuth(http.HandlerFunc(h.deleteMe)))
+}
+
+// deleteMe erases the account and all its data. The caller must pass ?confirm=delete, so a
+// stray request cannot do it; the refresh token is revoked and the cookies are cleared.
+func (h *Handler) deleteMe(w http.ResponseWriter, r *http.Request) {
+	if h.deleter == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "unavailable", "account deletion is not configured")
+		return
+	}
+	if r.URL.Query().Get("confirm") != "delete" {
+		httpx.FieldError(w, http.StatusBadRequest, "confirm_required", "confirm", "pass ?confirm=delete")
+		return
+	}
+	if err := h.deleter.DeleteUser(r.Context(), httpx.UserID(r.Context())); err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	if c, err := r.Cookie(refreshCookie); err == nil {
+		_ = h.svc.Logout(r.Context(), c.Value)
+	}
+	h.cookies.Clear(w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) otpSend(w http.ResponseWriter, r *http.Request) {

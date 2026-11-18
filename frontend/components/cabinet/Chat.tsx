@@ -14,6 +14,7 @@ function useHistory() {
   const open = (h: ChatItem) => {
     s.closeSheet();
     if (h.id === "live") return;
+    if (s.remote) return s.openServerChat(h);
     const q = t(OLD_Q[h.topic] || h.title);
     const r = answer(q, { ledger: s.ledger, view: s.view, route: "consul", last: null, t });
     s.loadChat(h, q, r.reply, r.topic);

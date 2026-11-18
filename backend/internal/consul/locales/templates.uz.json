@@ -137,6 +137,7 @@
     "calculate_tax": "Kalkulyator: soliq",
     "calculate_breakeven": "Kalkulyator: zararsizlik",
     "safe_loan": "Kalkulyator: xavfsiz kredit (foydaning 30%)",
-    "draft_operation": "Qoralama: hisobga yozilmagan"
+    "draft_operation": "Qoralama: hisobga yozilmagan",
+    "remember_fact": "Eslab qoldim"
   }
 }

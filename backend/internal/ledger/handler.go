@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,6 +67,10 @@ func NewHandler(repo *PGRepo, p TaxPolicy) *Handler {
 func (h *Handler) Register(mux *http.ServeMux, reqAuth httpx.Middleware) {
 	mux.Handle("GET /ledger/today", reqAuth(http.HandlerFunc(h.today)))
 	mux.Handle("POST /ops/parse", reqAuth(http.HandlerFunc(h.parseText)))
+	mux.Handle("GET /reports/bank", reqAuth(http.HandlerFunc(h.bankReport)))
+	mux.Handle("POST /forecast/whatif", reqAuth(http.HandlerFunc(h.whatIf)))
+	mux.Handle("POST /advisor/plan", reqAuth(http.HandlerFunc(h.plan)))
+	mux.Handle("GET /me/export.csv", reqAuth(http.HandlerFunc(h.exportCSV)))
 	mux.Handle("GET /ops", reqAuth(http.HandlerFunc(h.listOps)))
 	mux.Handle("POST /ops", reqAuth(http.HandlerFunc(h.createOp)))
 	mux.Handle("DELETE /ops/{id}", reqAuth(http.HandlerFunc(h.deleteOp)))
@@ -762,4 +767,114 @@ func (h *Handler) deleteObligation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) bankReport(w http.ResponseWriter, r *http.Request) {
+	months := 3
+	if v := r.URL.Query().Get("months"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 12 {
+			httpx.FieldError(w, http.StatusBadRequest, "months_invalid", "months", "months must be 1..12")
+			return
+		}
+		months = n
+	}
+	st, err := h.repo.LoadState(r.Context(), httpx.UserID(r.Context()))
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, Bank(st, h.now(), months, h.policy))
+}
+
+func (h *Handler) whatIf(w http.ResponseWriter, r *http.Request) {
+	var in WhatIfInput
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if in.Amount < 0 || in.Amount > maxAmount || in.UpliftPct < 0 || in.UpliftPct > 500 || in.AnnualRate < 0 || in.AnnualRate > 200 ||
+		in.TermMonths < 0 || in.TermMonths > 120 || len(in.Payments) > 12 {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "scenario_invalid", "amount", "scenario values out of range")
+		return
+	}
+	for _, p := range in.Payments {
+		if p.Amount > maxAmount || p.Amount < -maxAmount {
+			httpx.FieldError(w, http.StatusUnprocessableEntity, "amount_too_large", "payments", "amount is unrealistically large")
+			return
+		}
+	}
+	st, err := h.repo.LoadState(r.Context(), httpx.UserID(r.Context()))
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	res, code := WhatIf(st, h.now(), in, h.policy)
+	if code != "" {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, code, "kind", "invalid scenario")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) plan(w http.ResponseWriter, r *http.Request) {
+	var in PlanInput
+	if err := httpx.Decode(r, &in); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	for field, v := range map[string]int64{"capital": in.Capital, "sales": in.Sales, "rent": in.Rent, "helper": in.Helper} {
+		if v < 0 || v > maxAmount {
+			httpx.FieldError(w, http.StatusUnprocessableEntity, "amount_invalid", field, "must be 0.."+strconv.FormatInt(maxAmount, 10))
+			return
+		}
+	}
+	if in.Capital == 0 {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "amount_required", "capital", "capital is required")
+		return
+	}
+	if in.CogsPct != nil && (*in.CogsPct < 0 || *in.CogsPct > 100) {
+		httpx.FieldError(w, http.StatusUnprocessableEntity, "cogs_invalid", "cogs_pct", "0..100")
+		return
+	}
+	st, err := h.repo.LoadState(r.Context(), httpx.UserID(r.Context()))
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, Plan(st, h.now(), in))
+}
+
+// exportCSV downloads all of the user's operations (';' separator, UTF-8 BOM for Excel).
+func (h *Handler) exportCSV(w http.ResponseWriter, r *http.Request) {
+	st, err := h.repo.LoadState(r.Context(), httpx.UserID(r.Context()))
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="consul-operations-`+h.now().In(Tashkent).Format(time.DateOnly)+`.csv"`)
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF}) // UTF-8 BOM
+	cw := csv.NewWriter(w)
+	cw.Comma = ';'
+	_ = cw.Write([]string{"date", "kind", "amount", "method", "label", "counterparty", "fiscal", "source"})
+	for i := len(st.Ops) - 1; i >= 0; i-- { // newest first
+		o := st.Ops[i]
+		who := ""
+		if o.Counterparty != nil {
+			who = *o.Counterparty
+		}
+		_ = cw.Write([]string{csvSafe(o.OccurredAt.In(Tashkent).Format("2006-01-02 15:04")), o.Kind, strconv.FormatInt(o.Amount, 10), o.Method,
+			csvSafe(o.Label), csvSafe(who), strconv.FormatBool(o.Fiscal), o.Source})
+	}
+	cw.Flush()
+}
+
+// csvSafe stops spreadsheet formula injection: a cell that starts with = + - @ is read as a
+// formula by Excel, so user-typed text gets a leading apostrophe.
+func csvSafe(s string) string {
+	if s != "" && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
+		return "'" + s
+	}
+	return s
 }

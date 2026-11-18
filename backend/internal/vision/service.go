@@ -45,15 +45,16 @@ type Field struct {
 }
 
 type Result struct {
-	IsDocument   bool     `json:"is_document"`
-	DocumentType string   `json:"document_type"`
-	Title        string   `json:"title"`
-	Language     string   `json:"language"` // language of the document itself
-	Text         string   `json:"text"`     // full transcription, original language
-	Fields       []Field  `json:"fields"`
-	Summary      string   `json:"summary"`
-	Warnings     []string `json:"warnings"`
-	Model        string   `json:"model"`
+	IsDocument   bool      `json:"is_document"`
+	DocumentType string    `json:"document_type"`
+	Title        string    `json:"title"`
+	Language     string    `json:"language"` // language of the document itself
+	Text         string    `json:"text"`     // full transcription, original language
+	Fields       []Field   `json:"fields"`
+	Summary      string    `json:"summary"`
+	Warnings     []string  `json:"warnings"`
+	Model        string    `json:"model"`
+	DraftOps     []DraftOp `json:"draft_ops"` // proposed operations; the user confirms, then POST /ops
 }
 
 type Service struct {
@@ -124,6 +125,10 @@ func (s *Service) Recognize(ctx context.Context, userID string, img []byte, lang
 		return Result{}, ErrUnreadable
 	}
 	res.Model = s.llm.Model()
+	res.DraftOps = BuildDrafts(&res)
+	if res.DraftOps == nil {
+		res.DraftOps = []DraftOp{}
+	}
 	return res, nil
 }
 

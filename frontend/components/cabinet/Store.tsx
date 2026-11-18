@@ -9,7 +9,7 @@ import { fmt } from "@/lib/format";
 import { useT, useTP } from "@/components/I18n";
 import { recordOperation, type OperationInput } from "@/lib/operations";
 import { readLedger, LEDGER_STORAGE_KEY } from "@/lib/storage";
-import { api, ApiError, loadLedger, type ApiReply, type Draft } from "@/lib/api";
+import { api, ApiError, dayLabel, loadLedger, type ApiReply, type Draft } from "@/lib/api";
 
 export interface Toast { id: number; main: string; sub?: string; warn?: boolean; undo?: () => void }
 export interface Msg { id: number; role: "user" | "bot"; text?: string; reply?: Reply; thinking?: boolean; voice?: boolean; pending?: Draft | null }
@@ -26,6 +26,8 @@ interface Store {
   forceAct: (text: string) => void;
   setReserve: (v: number) => void;
   setMemory: (m: [string, string][]) => void;
+  /** Opens a saved server conversation (remote mode). */
+  openServerChat: (h: ChatItem) => void;
   chatId: string; chatTitle: string; loadChat: (h: ChatItem, q: string, r: Reply, t: Topic) => void;
   msgs: Msg[]; chat: (text: string, opts?: { voice?: boolean }) => void; newChat: () => void;
   history: ChatItem[]; setTopic: (t: Topic) => void;
@@ -99,6 +101,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const openSheet = useCallback((n: ReactNode) => setSheet(n), []);
   const closeSheet = useCallback(() => setSheet(null), []);
 
+  /** Saved conversations, grouped like the demo list (today, this week, earlier). */
+  const loadHistory = useCallback(() => {
+    api.chats().then(r => {
+      const now = new Date();
+      setHistory(r.items.map(c => {
+        const age = (now.getTime() - new Date(c.updated_at).getTime()) / 86_400_000;
+        return { id: c.id, title: c.title || "Suhbat", date: dayLabel(c.updated_at, now).toLowerCase(), group: age < 1 ? "Bugun" : age < 7 ? "Shu hafta" : "Oldinroq", topic: c.topic };
+      }));
+    }).catch(() => {});
+  }, []);
+
   /** Reloads the ledger from the server; local memory and checklist stay as they are. */
   const refresh = useCallback(async () => {
     const cur = ledgerRef.current;
@@ -131,6 +144,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         remoteRef.current = true; setRemote(true);
         setBigText(!!me.prefs?.big_text); setStats(!!me.stats_consent_at);
         await refresh();
+        // What Consul remembers, the saved chats and the cost share from the user's own history.
+        api.memory().then(m => { if (active) setLedger(l => ({ ...l, memory: m.items.map(f => [f.key, f.value] as [string, string]) })); }).catch(() => {});
+        loadHistory();
+        api.plan({ capital: DEFAULT_PLAN.capital, sales: DEFAULT_PLAN.sales, rent: DEFAULT_PLAN.rent, helper: DEFAULT_PLAN.helper })
+          .then(p => { if (active) setPlan(x => ({ ...x, cogs: p.cogs_pct / 100, estimated: p.estimated })); }).catch(() => {});
       } catch {
         if (!active) return;
         const saved = readLedger();
@@ -140,7 +158,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       gate.open();
     })();
     return () => { active = false; };
-  }, [setLedger, refresh, gate]);
+  }, [setLedger, refresh, gate, loadHistory]);
   const storageFailed = useRef(false);
   useEffect(() => {
     if (!storageReady || remoteRef.current) return; // the server owns the ledger in remote mode
@@ -238,6 +256,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (remoteRef.current) {
       api.ask(text, serverChat.current, "/app/consul").then((r: ApiReply) => {
         serverChat.current = r.chat_id;
+        setChatId(r.chat_id); loadHistory();
         setMsgs(m => m.map(x => (x.id === idB ? { ...x, thinking: false, reply: r as Reply, voice: opts?.voice, pending: r.pending_op } : x)));
         if (opts?.voice) speak(r.text);
       }).catch(e => {
@@ -253,7 +272,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       else reply = ask(text);
       setMsgs(m => m.map(x => (x.id === idB ? { ...x, thinking: false, reply, voice: opts?.voice } : x)));
     }, 700);
-  }, [act, ask, t, fail, speak]);
+  }, [act, ask, t, fail, speak, loadHistory]);
 
   /** Remote: the server parser decides, the server ledger records, the server chat answers. */
   const handleRemote = useCallback(async (q: string, force = false) => {
@@ -342,11 +361,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void gate.done.then(() => { if (remoteRef.current) handleRemote(q, true).catch(fail); else act(q, false, true); });
   }, [gate, handleRemote, fail, act]);
 
+  const openServerChat = useCallback((h: ChatItem) => {
+    api.chatMessages(h.id).then(r => {
+      serverChat.current = h.id;
+      setChatId(h.id); setChatTitle(`${h.title} · ${h.date}`);
+      setMsgs(r.items.map((m, i) => (m.role === "user" ? { id: i + 1, role: "user" as const, text: m.text } : { id: i + 1, role: "bot" as const, reply: (m.reply as Reply) || { text: m.text } })));
+    }).catch(fail);
+  }, [fail]);
+
+  /** Memory edits go to the server as a diff against what is shown. */
+  const setMemory = (next: [string, string][]) => {
+    const prev = ledgerRef.current.memory;
+    setLedger(l => ({ ...l, memory: next }));
+    if (!remoteRef.current) return;
+    void gate.done.then(async () => {
+      try {
+        if (next.length === 0) { await api.forgetAll(); return; }
+        for (const [k] of prev) if (!next.some(n => n[0] === k)) await api.forget(k);
+        for (const [k, v] of next) if (prev.find(p => p[0] === k)?.[1] !== v) await api.putFact(k, v);
+      } catch (e) { fail(e); }
+    });
+  };
+
   const value: Store = {
     ledger, view: v, route, setRoute, toast, showToast, hideToast, sheet, openSheet, closeSheet,
     handle: handleG, applyFixed: applyFixedG, addOperation: addOperationG, repaid: repaidG, forceAct: forceActG,
     setReserve: (r) => { void gate.done.then(() => setReserve(r)); },
-    setMemory: (m) => setLedger(l => ({ ...l, memory: m })),
+    setMemory, openServerChat,
     chatId, chatTitle, loadChat: (h, q, r, t) => { setChatId(h.id); setChatTitle(`${h.title} · ${h.date}`); setMsgs([{ id: 1, role: "user", text: q }, { id: 2, role: "bot", reply: r }]); topic.current = t; },
     msgs, chat: chatG, newChat: () => { setMsgs([]); setChatId(""); setChatTitle(""); topic.current = null; serverChat.current = null; }, history, setTopic: (t) => { topic.current = t; },
     plan, setPlan, calcTab, setCalcTab, bigText, setBigText: setBigTextRemote, stats, setStats: setStatsRemote, ui, setUi,

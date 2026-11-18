@@ -95,6 +95,24 @@ export interface PalataReport {
   sectors: PalataGroup[]; markets: PalataGroup[];
   survey: { n: number; answers: { answer: string; pct: number }[] };
 }
+export interface BankReport {
+  generated_at: string; business: Business; avg_profit: number; tax_this_month: number; owed_to_me: number; owed_to_suppliers: number; cash: number;
+  months: { month: string; income: number; expense: number; profit: number; partial: boolean }[];
+}
+export type WhatIfInput =
+  | { kind: "buy"; amount?: number; payments?: { day: number; amount: number }[] }
+  | { kind: "helper"; amount: number; uplift_pct?: number }
+  | { kind: "loan"; amount: number; annual_rate?: number; term_months: number };
+export interface WhatIfResult {
+  baseline: { date: string; balance: number }[]; scenario: { date: string; balance: number }[];
+  lowest: { date: string; balance: number }; lowest_day: number; verdict: "ok" | "tight" | "short"; assumptions: string[];
+}
+export interface PlanResult {
+  cogs_pct: number; estimated: boolean;
+  base: { profit: number; payback_months: number | null }; sales_minus_20: { profit: number; payback_months: number | null }; rent_plus_20: { profit: number; payback_months: number | null };
+}
+export interface ChatSummary { id: string; title: string; topic: string; updated_at: string }
+export interface ChatMessage { role: "user" | "assistant"; text: string; reply?: ApiReply; created_at: string }
 export interface Recognized {
   is_document: boolean; document_type: string; title: string; text: string; summary: string; warnings: string[];
   fields: { key: string; label: string; value: string }[];
@@ -132,6 +150,18 @@ export const api = {
   stt: (audio: Blob, lang: string) => { const f = new FormData(); f.append("audio", audio, "voice"); f.append("lang", lang); return call<{ text: string; lang: string }>("POST", "/voice/stt", { form: f, timeout: 25000 }); },
   tts: (text: string, lang: string, speed = 1) => call<Response>("POST", "/voice/tts", { body: { text, lang, speed }, timeout: 20000, raw: true }),
   photo: (file: Blob, lang: string) => { const f = new FormData(); f.append("file", file, "photo"); f.append("lang", lang); return call<Recognized>("POST", "/photo", { form: f, timeout: 70000 }); },
+  bankReport: (months = 3) => call<BankReport>("GET", `/reports/bank?months=${months}`),
+  whatIf: (w: WhatIfInput) => call<WhatIfResult>("POST", "/forecast/whatif", { body: w }),
+  plan: (p: { capital: number; sales: number; rent: number; helper: number }) => call<PlanResult>("POST", "/advisor/plan", { body: p }),
+  chats: () => call<{ items: ChatSummary[] }>("GET", "/chats?limit=30"),
+  chatMessages: (id: string) => call<{ items: ChatMessage[] }>("GET", `/chats/${encodeURIComponent(id)}/messages`),
+  memory: () => call<{ items: { key: string; value: string }[] }>("GET", "/memory"),
+  putFact: (key: string, value: string) => call<{ items: { key: string; value: string }[] }>("PUT", "/memory", { body: { key, value } }),
+  forget: (key: string) => call<void>("DELETE", `/memory/${encodeURIComponent(key)}`),
+  forgetAll: () => call<void>("DELETE", "/memory"),
+  survey: (answer: string) => call<void>("POST", "/me/survey", { body: { question: "why_not_registered", answer } }),
+  deleteMe: () => call<void>("DELETE", "/me?confirm=delete"),
+  exportUrl: `${BASE}/me/export.csv`,
   palata: (window: 30 | 90) => call<PalataReport>("GET", `/palata/report?window=${window}`),
 };
 
@@ -187,7 +217,7 @@ export function toLedger(t: ApiToday, ops: ApiOp[], debtors: ApiDebtor[], memory
     income: m.income, buy: m.buy, other: m.exp, taxRate: m.income ? v.tax / m.income : 0.01, ytd: m.ytd_before, reserve: v.reserve,
   };
   const ds: Debtor[] = debtors.map(d => ({ name: d.name, amount: d.owed, days: d.days }));
-  return { money, debtors: ds, ops: ops.map(o => toOp(o)), memory, checks };
+  return { money, debtors: ds, ops: ops.map(o => toOp(o)), memory, checks, profit3m: v.profit_3m };
 }
 
 export async function loadLedger(memory: Ledger["memory"], checks?: Ledger["checks"]) {

@@ -3,7 +3,7 @@ import { Link, useT, tk } from "@/components/I18n";
 import { useState } from "react";
 import { fmt, roundK } from "@/lib/format";
 import { annuity } from "@/lib/finance";
-import { PROFIT_3M } from "@/lib/ledger";
+import { profit3m } from "@/lib/ledger";
 import { useStore } from "../Store";
 import { BankReport } from "../Sheets";
 import { Screen } from "./common";
@@ -17,7 +17,7 @@ const SUPPORT: [string, string, string, string][] = [
 export default function Kredit() { const t = useT();
   const s = useStore();
   const [sum, setSum] = useState(34), [m, setM] = useState(24);
-  const P = annuity(sum * 1e6, m, 0.02), sh = P / PROFIT_3M, p = Math.round(sh * 100);
+  const P = annuity(sum * 1e6, m, 0.02), sh = P / (profit3m(s.ledger) || 1), p = Math.round(sh * 100);
   const vd = sh <= 0.3 ? ["v-ok", t("Xavfsiz"), t("Toʻlov foydangizning {p0}% — qoida: 30% dan oshmasin.", { p0: p })] : sh <= 0.45 ? ["v-w", t("Ehtiyot boʻling"), t("Toʻlov foydaning {p0}%. Yomon oyda pul yetmasligi mumkin.", { p0: p })] : ["v-e", t("Xavfli"), t("Toʻlov foydaning {p0}%. Pul yetmay qolishi ehtimoli yuqori.", { p0: p })];
   return <Screen id="kredit" title={t("Kredit")}><div className="g2">
     <div className="col">

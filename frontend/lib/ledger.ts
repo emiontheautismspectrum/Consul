@@ -11,7 +11,9 @@ export interface Money {
 }
 export interface Debtor { name: string; amount: number; days: number }
 export interface Op { id: string; day: string; title: string; sub: string; amount: number; kind?: OpKind; note?: string }
-export interface Ledger { money: Money; debtors: Debtor[]; ops: Op[]; memory: [string, string][]; checks?: Record<string, boolean> }
+export interface Ledger { money: Money; debtors: Debtor[]; ops: Op[]; memory: [string, string][]; checks?: Record<string, boolean>;
+  /** Average monthly profit of the last 3 closed months, from the server. The demo uses PROFIT_3M. */
+  profit3m?: number }
 
 export interface View {
   cash: number; tax: number; obligations: number; reserve: number; free: number;
@@ -20,6 +22,7 @@ export interface View {
 
 /** Average monthly profit for the last 3 months: credit and plan decisions use it, not the running month. */
 export const PROFIT_3M = 6_000_000;
+export const profit3m = (l: Ledger): number => l.profit3m ?? PROFIT_3M;
 
 export function view(l: Ledger): View {
   const m = l.money;

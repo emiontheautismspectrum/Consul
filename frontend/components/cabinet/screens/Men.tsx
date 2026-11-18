@@ -7,6 +7,7 @@ import { USER } from "@/lib/demo";
 import { Icon } from "@/components/Icons";
 import { useStore } from "../Store";
 import { SupportSheet } from "../Sheets";
+import { api } from "@/lib/api";
 
 const Tg = ({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) =>
   <button className={"tg" + (on ? " on" : "")} aria-pressed={on} aria-label={label} onClick={() => onChange(!on)} />;
@@ -81,9 +82,9 @@ export default function Men({ sub }: { sub?: string }) { const t = useT(), tp = 
       {cur === "maxfiy" && <div className="pp" style={{ display: "block" }}>{back}<h3 className="ph">{t("Maxfiylik")}</h3>
         <div className="list">
           <div className="li"><span>{t("Anonim statistika")}<small>{t("ismsiz, faqat umumiy raqamlar · Palata hisobotiga")}</small></span><Tg on={s.stats} onChange={s.setStats} label={t("Anonim statistika")} /></div>
-          <a className="li" role="button" tabIndex={0} onClick={() => { downloadCsv([["sana", "turi", "summa"], ...l.ops.map(o => [o.day, o.title, o.amount])], t("consul_operatsiyalar.csv")); s.showToast({ main: t("Fayl tayyor"), sub: t("consul_operatsiyalar.csv") }); }}><span>{t("Maʼlumotlarimni yuklab olish")}<small>{t("barcha operatsiyalar · CSV, Excel ochadi")}</small></span><i className="chev">›</i></a>
+          <a className="li" role="button" tabIndex={0} onClick={() => { if (s.remote) { window.location.href = api.exportUrl; } else downloadCsv([["sana", "turi", "summa"], ...l.ops.map(o => [o.day, o.title, o.amount])], t("consul_operatsiyalar.csv")); s.showToast({ main: t("Fayl tayyor"), sub: t("consul_operatsiyalar.csv") }); }}><span>{t("Maʼlumotlarimni yuklab olish")}<small>{t("barcha operatsiyalar · CSV, Excel ochadi")}</small></span><i className="chev">›</i></a>
           <Link className="li" href="/maxfiylik"><span>{t("Shartlar va rozilik")}</span><i className="chev">›</i></Link></div>
-        <button className="lnk2 dng" onClick={() => confirm(t("Hisobni oʻchirish"), t("Barcha operatsiyalar, suhbatlar va xotira butunlay oʻchadi. Buni qaytarib boʻlmaydi."), t("Ha, oʻchirish"), () => router.push("/kirish"))}>{t("Hisobni oʻchirish")}</button>
+        <button className="lnk2 dng" onClick={() => confirm(t("Hisobni oʻchirish"), t("Barcha operatsiyalar, suhbatlar va xotira butunlay oʻchadi. Buni qaytarib boʻlmaydi."), t("Ha, oʻchirish"), () => { if (s.remote) api.deleteMe().then(() => { window.location.href = "/"; }).catch(() => s.showToast({ main: t("Saqlab boʻlmadi"), warn: true })); else router.push("/kirish"); })}>{t("Hisobni oʻchirish")}</button>
       </div>}
       {cur === "yordam" && <div className="pp" style={{ display: "block" }}>{back}<h3 className="ph">{t("Yordam")}</h3>
         <div className="list">

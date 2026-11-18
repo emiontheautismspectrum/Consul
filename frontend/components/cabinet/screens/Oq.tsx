@@ -1,6 +1,7 @@
 "use client";
 import { Link, useT, tk, useMln } from "@/components/I18n";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { fmt, formatInput } from "@/lib/format";
 import { safeLoan } from "@/lib/finance";
 import { TURNOVER_1PCT_LIMIT } from "@/lib/tax";
@@ -8,6 +9,20 @@ import { useStore } from "../Store";
 import { Screen } from "./common";
 
 const INVITE = tk("Assalomu alaykum! Men Consul ilovasida savdoni yozib boraman. YaTT sifatida roʻyxatdan oʻtsangiz, soliq aylanmadan 1%, bank krediti va davlat yordamiga yoʻl ochiladi. Consul hisoblab beradi.");
+
+const WHY: [string, string][] = [["fear_tax", tk("Soliq va tekshiruvdan qoʻrqadi")], ["complex_docs", tk("Hujjatlar murakkab")], ["no_benefit", tk("Foydasini koʻrmaydi")], ["other", tk("Boshqa")]];
+
+/** One question for the Chamber report ("why don't you register?"), shown only to unregistered traders. */
+function WhySurvey() { const t = useT();
+  const s = useStore();
+  const [show, setShow] = useState(false), [done, setDone] = useState(false);
+  useEffect(() => { if (s.remote) api.me().then(me => setShow(me.business?.status === "none")).catch(() => {}); }, [s.remote]);
+  if (!show) return null;
+  return <div className="blk"><p className="bh">{t("Nega roʻyxatdan oʻtmaysiz?")}</p>
+    {done ? <p className="note">{t("Rahmat! Javobingiz ismsiz, umumiy raqamlar ichida.")}</p>
+      : <div className="list">{WHY.map(([k, label]) => <a className="li" key={k} role="button" tabIndex={0} onClick={() => { api.survey(k).then(() => setDone(true)).catch(() => {}); }}><span>{t(label)}</span><i className="chev">›</i></a>)}</div>}
+  </div>;
+}
 
 export default function Oq() { const t = useT(), mln = useMln();
   const s = useStore();
@@ -22,6 +37,7 @@ export default function Oq() { const t = useT(), mln = useMln();
   const share = () => navigator.clipboard?.writeText(t(INVITE)).then(() => s.showToast({ main: t("Nusxalandi"), sub: t("SMS yoki messenjerga joylashtiring") }), () => s.openSheet(<><h4>{t("Taklif matni")}</h4><textarea className="ta" defaultValue={t(INVITE)} /></>));
   return <Screen id="oq" title={t("Oq biznes")}><div className="g2">
     <div className="col">
+      <WhySurvey />
       <div className="blk"><div className="big1"><p className="l">{t("Sizning maqomingiz")}</p><p className="n" style={{ whiteSpace: "normal", fontSize: 28 }}>{t("Rasmiy · YaTT ✓")}</p><p className="sub1">{t("aylanmadan 1% · yiliga 1 mlrd gacha")}</p></div></div>
       <div className="blk"><p className="bh">{t("Bu sizga nima beradi")}</p><div className="list">
         <Link className="li" href="/app/kredit"><span>{t("Bank krediti")}<small>{t("daromad tarixi bilan · bank qarori")}</small></span><span className="lr"><b>{t("34 mln gacha")}</b><i className="chev">›</i></span></Link>

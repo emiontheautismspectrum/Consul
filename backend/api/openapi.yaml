@@ -70,6 +70,13 @@ paths:
       tags: [user]
       requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {lang: {$ref: '#/components/schemas/Lang'}, prefs: {$ref: '#/components/schemas/Prefs'}}}}}}
       responses: {'200': {description: Updated profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
+    delete:
+      tags: [user]
+      summary: Delete the account and ALL its data (operations, debts, chats, memory, plans)
+      description: Requires `?confirm=delete`. Anonymous aggregated Chamber snapshots already published are not affected. Clears the cookies.
+      parameters: [{name: confirm, in: query, required: true, schema: {type: string, enum: [delete]}}]
+      responses: {'204': {description: Deleted}, '400': {description: confirm_required, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}}
+
   /me/consent:
     post:
       tags: [user]
@@ -475,6 +482,84 @@ paths:
       responses:
         '200': {description: CSV, content: {text/csv: {schema: {type: string}}}}
 
+  /reports/bank:
+    get:
+      tags: [ledger]
+      summary: Report for a bank — income, expenses, profit by month (JSON; the frontend prints PDF)
+      description: The current month is marked `partial` and is not part of `avg_profit` (credit decisions use closed months only).
+      parameters: [{name: months, in: query, schema: {type: integer, minimum: 1, maximum: 12, default: 3}}]
+      responses:
+        '200': {description: Report, content: {application/json: {schema: {$ref: '#/components/schemas/BankReport'}}}}
+        '400': {description: months_invalid, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /forecast/whatif:
+    post:
+      tags: [ledger]
+      summary: "\"What if…\" — the 30-day cash forecast with and without a purchase, helper or loan"
+      description: |
+        Adds explicit cash flows to the baseline forecast built from the user's own ledger; no revenue is invented
+        (except `uplift_pct` of the helper scenario, listed in `assumptions`).
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WhatIfInput'}}}}
+      responses:
+        '200': {description: Two series and the lowest point, content: {application/json: {schema: {$ref: '#/components/schemas/WhatIfResult'}}}}
+        '422': {description: "kind_invalid, amount_required, day_invalid, scenario_invalid, amount_too_large", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /advisor/plan:
+    post:
+      tags: [advisor]
+      summary: Business plan math — extra monthly profit and payback; cost share from the user's own history
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PlanInput'}}}}
+      responses:
+        '200': {description: Plan, content: {application/json: {schema: {$ref: '#/components/schemas/PlanResult'}}}}
+        '422': {description: "amount_required, amount_invalid, cogs_invalid", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /chats:
+    get:
+      tags: [consul]
+      summary: Chat history, newest first
+      parameters: [{$ref: '#/components/parameters/Limit'}]
+      responses: {'200': {description: Chats, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {type: object, properties: {id: {type: string, format: uuid}, title: {type: string}, topic: {type: string}, updated_at: {type: string, format: date-time}}}}}}}}}}
+  /chats/{id}/messages:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [consul]
+      responses:
+        '200': {description: Messages in order; assistant messages carry the full Reply, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {type: object, properties: {role: {type: string, enum: [user, assistant]}, text: {type: string}, reply: {$ref: '#/components/schemas/Reply'}, created_at: {type: string, format: date-time}}}}}}}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /chats/{id}:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    delete:
+      tags: [consul]
+      responses: {'204': {description: Deleted}, '404': {$ref: '#/components/responses/Error'}}
+  /memory:
+    get:
+      tags: [consul]
+      summary: "Consul memory — facts the user can see, edit and erase"
+      responses: {'200': {description: Facts, content: {application/json: {schema: {$ref: '#/components/schemas/Memory'}}}}}
+    put:
+      tags: [consul]
+      summary: Add or change a fact (at most 50; key ≤ 60, value ≤ 300 characters)
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [key, value], properties: {key: {type: string}, value: {type: string}}}}}}
+      responses:
+        '200': {description: All facts, content: {application/json: {schema: {$ref: '#/components/schemas/Memory'}}}}
+        '422': {description: "key_invalid, value_invalid, too_many_facts", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    delete:
+      tags: [consul]
+      summary: Forget everything
+      responses: {'204': {description: Forgotten}}
+  /memory/{key}:
+    parameters: [{name: key, in: path, required: true, schema: {type: string}}]
+    delete:
+      tags: [consul]
+      responses: {'204': {description: Forgotten}}
+  /me/export.csv:
+    get:
+      tags: [user]
+      summary: Download all operations (CSV, ";" separator, UTF-8 BOM for Excel)
+      responses: {'200': {description: CSV, content: {text/csv: {schema: {type: string}}}}}
+  /me/survey:
+    post:
+      tags: [user]
+      summary: "\"Why don't you register?\" — one answer per user, shown to the Chamber as shares only"
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [question, answer], properties: {question: {type: string, enum: [why_not_registered]}, answer: {type: string, enum: [fear_tax, complex_docs, no_benefit, other]}}}}}}
+      responses: {'204': {description: Saved}, '422': {$ref: '#/components/responses/Error'}}
   /healthz:
     get: {tags: [user], security: [], summary: Liveness, responses: {'200': {description: ok}}}
   /readyz:
@@ -859,6 +944,59 @@ components:
         markets: {type: array, items: {$ref: '#/components/schemas/PalataGroup'}}
         survey: {type: object, properties: {n: {type: integer}, answers: {type: array, items: {type: object, properties: {answer: {type: string}, pct: {type: integer}}}}}}
         official: {type: object, properties: {value_pct: {type: number}, services_pct: {type: number}, period: {type: string}, source: {type: string}, note: {type: string}}}
+    BankReport:
+      type: object
+      properties:
+        generated_at: {type: string, format: date-time}
+        business: {$ref: '#/components/schemas/Business'}
+        months: {type: array, items: {type: object, properties: {month: {type: string, example: "2026-10"}, income: {$ref: '#/components/schemas/Money'}, expense: {$ref: '#/components/schemas/Money'}, profit: {$ref: '#/components/schemas/Money'}, partial: {type: boolean}}}}
+        avg_profit: {$ref: '#/components/schemas/Money'}
+        tax_this_month: {$ref: '#/components/schemas/Money'}
+        owed_to_me: {$ref: '#/components/schemas/Money'}
+        owed_to_suppliers: {$ref: '#/components/schemas/Money'}
+        cash: {$ref: '#/components/schemas/Money'}
+    WhatIfInput:
+      type: object
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [buy, helper, loan]}
+        amount: {$ref: '#/components/schemas/Money'}
+        payments: {type: array, description: "buy: instalments, day 1..30 from tomorrow, negative = money out", items: {type: object, properties: {day: {type: integer}, amount: {$ref: '#/components/schemas/Money'}}}}
+        uplift_pct: {type: number, description: "helper: extra sales in percent, from day 10"}
+        annual_rate: {type: number, description: "loan, default 24"}
+        term_months: {type: integer, description: loan}
+    WhatIfResult:
+      type: object
+      properties:
+        baseline: {type: array, items: {type: object, properties: {date: {type: string, format: date}, balance: {$ref: '#/components/schemas/Money'}}}}
+        scenario: {type: array, items: {type: object, properties: {date: {type: string, format: date}, balance: {$ref: '#/components/schemas/Money'}}}}
+        lowest: {type: object, properties: {date: {type: string, format: date}, balance: {$ref: '#/components/schemas/Money'}}}
+        lowest_day: {type: integer}
+        verdict: {type: string, enum: [ok, tight, short], description: "tight = below the reserve, short = cash runs out"}
+        assumptions: {type: array, items: {type: string}}
+    PlanInput:
+      type: object
+      required: [capital]
+      properties:
+        capital: {$ref: '#/components/schemas/Money'}
+        sales: {$ref: '#/components/schemas/Money'}
+        rent: {$ref: '#/components/schemas/Money'}
+        helper: {$ref: '#/components/schemas/Money'}
+        cogs_pct: {type: number, description: "optional; default = purchases / income of the closed months"}
+    PlanScenario:
+      type: object
+      properties: {profit: {$ref: '#/components/schemas/Money'}, payback_months: {type: integer, nullable: true}}
+    PlanResult:
+      type: object
+      properties:
+        cogs_pct: {type: number}
+        estimated: {type: boolean, description: "true when there is no history and 64% is an assumption"}
+        base: {$ref: '#/components/schemas/PlanScenario'}
+        sales_minus_20: {$ref: '#/components/schemas/PlanScenario'}
+        rent_plus_20: {$ref: '#/components/schemas/PlanScenario'}
+    Memory:
+      type: object
+      properties: {items: {type: array, items: {type: object, properties: {key: {type: string}, value: {type: string}, updated_at: {type: string, format: date-time}}}}}
     PhotoResult:
       type: object
       properties:
@@ -879,6 +1017,7 @@ components:
               value: {type: string, example: "14 000 000 сум"}
         summary: {type: string}
         warnings: {type: array, items: {type: string}}
+        draft_ops: {type: array, description: "Proposed purchase from a receipt/invoice; show it, then POST /ops after the user confirms", items: {$ref: '#/components/schemas/Draft'}}
         model: {type: string, example: kimi-k3}
         disclaimer: {type: string}
     Plan:

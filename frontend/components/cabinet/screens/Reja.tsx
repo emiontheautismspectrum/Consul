@@ -2,7 +2,7 @@
 import { Link, useT } from "@/components/I18n";
 import { fmt, roundK } from "@/lib/format";
 import { annuity } from "@/lib/finance";
-import { PROFIT_3M } from "@/lib/ledger";
+import { profit3m } from "@/lib/ledger";
 import { payback, planProfit } from "@/lib/plan";
 import { useStore } from "../Store";
 import { PlanReport, PlanWizard } from "../Sheets";
@@ -11,7 +11,7 @@ import { Screen } from "./common";
 export default function Reja() { const t = useT();
   const s = useStore(), p = s.plan, x = planProfit(p), m = payback(p), r1 = payback(p, 0.8);
   const own = Math.max(0, Math.min(s.view.free, p.capital)), L = Math.max(0, p.capital - own), pay = L ? annuity(L, 24, 0.02) : 0;
-  const share = L ? Math.round((pay / (PROFIT_3M + Math.max(x, 0))) * 100) : 0;
+  const share = L ? Math.round((pay / ((profit3m(s.ledger) || 1) + Math.max(x, 0))) * 100) : 0;
   const rows: [React.ReactNode, string][] = [[t("Qoʻshimcha sotuv"), fmt(p.sales)], [<>{t("Xarid")}<small>{t("tannarx {p0}% — tarixingizdan", { p0: Math.round(p.cogs * 100) })}</small></>, "−" + fmt(p.sales * p.cogs)], [<>{t("Ijara")}{p.estimated && p.rent ? <small>{t("taxmin — aniqlang")}</small> : null}</>, p.rent ? "−" + fmt(p.rent) : "0"], [t("Yordamchi"), p.helper ? "−" + fmt(p.helper) : "0"], [<strong key="f">{t("Foyda / oy")}</strong>, "~" + fmt(x)]];
   return <Screen id="reja" title={t("Biznes-reja")}><div className="g2">
     <div className="col">
