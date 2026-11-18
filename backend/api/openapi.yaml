@@ -20,6 +20,10 @@ tags:
   - {name: calculator}
   - {name: advisor}
   - {name: vision, description: Document photo recognition (multimodal LLM)}
+  - {name: ledger, description: "Bookkeeping: operations, debtors, obligations, the Today screen"}
+  - {name: consul, description: "Chat with Consul, grounded in the user's ledger"}
+  - {name: voice, description: Speech to text and text to speech (VoiceLab)}
+  - {name: palata, description: Anonymous statistics for the Chamber of Commerce}
 security: [{cookieAuth: []}, {bearerAuth: []}]
 
 paths:
@@ -64,7 +68,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
     patch:
       tags: [user]
-      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [lang], properties: {lang: {$ref: '#/components/schemas/Lang'}}}}}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {lang: {$ref: '#/components/schemas/Lang'}, prefs: {$ref: '#/components/schemas/Prefs'}}}}}}
       responses: {'200': {description: Updated profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
   /me/consent:
     post:
@@ -225,6 +229,245 @@ paths:
         '502': {description: llm_error, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
         '503': {description: llm_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
 
+  /auth/otp/send:
+    post:
+      tags: [auth]
+      security: []
+      summary: Send a one-time login code by SMS
+      description: |
+        Phone is normalized to +998XXXXXXXXX. At most 3 codes per 10 minutes per phone and per IP.
+        In APP_ENV=demo the code is fixed (DEMO_OTP) and no SMS is sent.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [phone], properties: {phone: {type: string, example: "+998901234567"}}}}}}
+      responses:
+        '204': {description: Code sent}
+        '422': {description: invalid_phone, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '429': {description: otp_rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /auth/otp/verify:
+    post:
+      tags: [auth]
+      security: []
+      summary: Verify the code, log in (creates the user on first login)
+      description: Sets access/refresh cookies. 3 wrong codes block the phone for 10 minutes.
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [phone, code], properties: {phone: {type: string}, code: {type: string, example: "123456"}}}}}}
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema: {type: object, required: [user, is_new], properties: {user: {$ref: '#/components/schemas/Profile'}, is_new: {type: boolean}}}
+        '401': {description: invalid_code, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '422': {description: invalid_phone, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '429': {description: otp_locked, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /auth/demo:
+    post:
+      tags: [auth]
+      security: []
+      summary: Log into the demo account (Dilnoza) and reset its data to the reference ledger
+      description: Only when the server runs with APP_ENV=demo; otherwise 404.
+      responses:
+        '200': {description: Logged in, content: {application/json: {schema: {type: object, properties: {user: {$ref: '#/components/schemas/Profile'}}}}}}
+        '404': {$ref: '#/components/responses/Error'}
+
+  /me/business:
+    put:
+      tags: [user]
+      summary: Create or replace the business profile (onboarding, "Me → Business")
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Business'}}}}
+      responses:
+        '200': {description: Profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}
+        '422': {$ref: '#/components/responses/Error'}
+  /me/consent/stats:
+    post:
+      tags: [user]
+      summary: Voluntary consent to anonymous statistics for the Chamber of Commerce
+      responses: {'200': {description: Profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
+    delete:
+      tags: [user]
+      summary: Withdraw the statistics consent (excluded from the next snapshots)
+      responses: {'200': {description: Profile, content: {application/json: {schema: {$ref: '#/components/schemas/Profile'}}}}}
+
+  /ledger/today:
+    get:
+      tags: [ledger]
+      summary: The "Today" screen — what can be spent, upcoming payments, attention, 30-day forecast, month
+      responses:
+        '200': {description: Today, content: {application/json: {schema: {$ref: '#/components/schemas/Today'}}}}
+  /ops/parse:
+    post:
+      tags: [ledger]
+      summary: Understand a typed/spoken phrase without writing anything (deterministic parser, no LLM)
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [text], properties: {text: {type: string, example: "bugun 1,2 mln sotdim", maxLength: 500}}}}}}
+      responses:
+        '200': {description: Intent, content: {application/json: {schema: {$ref: '#/components/schemas/Intent'}}}}
+  /ops:
+    get:
+      tags: [ledger]
+      summary: Operations, newest first, cursor pagination
+      parameters:
+        - {name: kind, in: query, schema: {$ref: '#/components/schemas/OpKind'}}
+        - {name: from, in: query, schema: {type: string, format: date}, description: "inclusive, Asia/Tashkent"}
+        - {name: to, in: query, schema: {type: string, format: date}, description: "inclusive, Asia/Tashkent"}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, default: 50, maximum: 200}}
+      responses:
+        '200':
+          description: Page
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/Op'}}, next_cursor: {type: string, nullable: true}}}
+    post:
+      tags: [ledger]
+      summary: Record an operation (after the user confirmed it)
+      parameters:
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, maxLength: 100}, description: "A repeat with the same key returns the first response"}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OpInput'}}}}
+      responses:
+        '201': {description: Recorded, content: {application/json: {schema: {$ref: '#/components/schemas/OpResult'}}}}
+        '200': {description: Idempotent repeat, content: {application/json: {schema: {$ref: '#/components/schemas/OpResult'}}}}
+        '400': {description: idempotency_key_required, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '422': {description: "amount_required, kind_invalid, counterparty_required, …", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /ops/{id}:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    delete:
+      tags: [ledger]
+      summary: Undo an operation (soft delete)
+      responses:
+        '200': {description: New numbers, content: {application/json: {schema: {$ref: '#/components/schemas/FreeChange'}}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /debtors:
+    get:
+      tags: [ledger]
+      summary: Customers who owe money (nasiya)
+      responses:
+        '200':
+          description: Debtors, longest debt first
+          content:
+            application/json:
+              schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Debtor'}}, total: {type: integer, format: int64}}}
+  /debtors/{id}/repaid:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      tags: [ledger]
+      summary: The debtor paid back (whole debt when amount is omitted)
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string}}
+      requestBody: {content: {application/json: {schema: {type: object, properties: {amount: {type: integer, format: int64}, method: {$ref: '#/components/schemas/Method'}}}}}}
+      responses:
+        '201': {description: Recorded, content: {application/json: {schema: {$ref: '#/components/schemas/OpResult'}}}}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /debtors/{id}/reminder:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      tags: [ledger]
+      summary: Polite reminder text in the user's language
+      responses:
+        '200': {description: Text, content: {application/json: {schema: {type: object, properties: {text: {type: string}}}}}}
+        '404': {$ref: '#/components/responses/Error'}
+  /obligations:
+    get:
+      tags: [ledger]
+      summary: Rent, supplier, loan and other payments
+      responses:
+        '200': {description: List, content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Obligation'}}}}}}}
+    post:
+      tags: [ledger]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ObligationInput'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Obligation'}}}}
+        '422': {$ref: '#/components/responses/Error'}
+  /obligations/{id}:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    patch:
+      tags: [ledger]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ObligationInput'}}}}
+      responses:
+        '200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/Obligation'}}}}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [ledger]
+      responses: {'204': {description: Deleted}, '404': {$ref: '#/components/responses/Error'}}
+
+  /consul/ask:
+    post:
+      tags: [consul]
+      summary: Ask Consul (chat). Grounded in the user's ledger; numbers come from tools
+      description: |
+        With `Accept: text/event-stream` the answer streams: `delta` events `{"text": "..."}`, then one
+        `reply` event with the full Reply. If the LLM fails, is slow (> 8 s) or a number cannot be
+        verified, a template answer is returned with `fallback: true`.
+        Operations mentioned in the text come back as `pending_op`; Consul never writes to the ledger.
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 1000, example: "kredit olsam boʻladimi?"}
+                chat_id: {type: string, format: uuid, nullable: true}
+                route: {type: string, description: "Current screen path without language prefix, e.g. /app/kredit", example: /app}
+      responses:
+        '200':
+          description: Reply (JSON) or SSE stream
+          content:
+            application/json: {schema: {$ref: '#/components/schemas/Reply'}}
+            text/event-stream: {schema: {type: string}}
+        '422': {$ref: '#/components/responses/Error'}
+
+  /voice/stt:
+    post:
+      tags: [voice]
+      summary: Speech to text (VoiceLab). Audio is never stored or logged
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio: {type: string, format: binary, description: "webm/ogg/mp4/wav, up to 60 s and 2 MB"}
+                lang: {$ref: '#/components/schemas/Lang'}
+      responses:
+        '200': {description: Text, content: {application/json: {schema: {type: object, properties: {text: {type: string}, lang: {$ref: '#/components/schemas/Lang'}}}}}}
+        '413': {description: audio_too_large, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '503': {description: voice_unavailable — show text input, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /voice/tts:
+    post:
+      tags: [voice]
+      summary: Text to speech (VoiceLab), cached 24 h
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [text], properties: {text: {type: string, maxLength: 1000}, lang: {$ref: '#/components/schemas/Lang'}, speed: {type: number, minimum: 0.5, maximum: 2, default: 1}}}
+      responses:
+        '200': {description: Audio, content: {audio/mpeg: {schema: {type: string, format: binary}}}}
+        '503': {description: voice_unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+
+  /palata/report:
+    get:
+      tags: [palata]
+      security: []
+      summary: Anonymous statistics for the Chamber of Commerce (problem 21)
+      description: Reads only precomputed snapshots. Groups with fewer than 5 entrepreneurs are never returned.
+      parameters: [{name: window, in: query, schema: {type: integer, enum: [30, 90], default: 30}}]
+      responses:
+        '200': {description: Report, content: {application/json: {schema: {$ref: '#/components/schemas/PalataReport'}}}}
+  /palata/report.csv:
+    get:
+      tags: [palata]
+      security: []
+      summary: The same report as CSV (`;` separator, UTF-8 with BOM, opens in Excel)
+      parameters: [{name: window, in: query, schema: {type: integer, enum: [30, 90], default: 30}}]
+      responses:
+        '200': {description: CSV, content: {text/csv: {schema: {type: string}}}}
+
   /healthz:
     get: {tags: [user], security: [], summary: Liveness, responses: {'200': {description: ok}}}
   /readyz:
@@ -248,7 +491,8 @@ components:
   schemas:
     Error:
       type: object
-      properties: {error: {type: object, properties: {code: {type: string}, message: {type: string}}}}
+      description: "The frontend shows text by `code` in its own language; `message` is for logs"
+      properties: {error: {type: object, required: [code, message], properties: {code: {type: string, example: amount_required}, field: {type: string, example: amount}, message: {type: string}}}}
     Lang: {type: string, enum: [uz, ru, en]}
     Credentials:
       type: object
@@ -261,10 +505,15 @@ components:
       type: object
       properties:
         id: {type: string, format: uuid}
-        email: {type: string}
+        phone: {type: string, nullable: true, example: "+998901234567"}
+        email: {type: string, nullable: true}
+        role: {type: string, enum: [user, chamber, admin]}
         lang: {$ref: '#/components/schemas/Lang'}
-        consent_at: {type: string, format: date-time, nullable: true}
+        prefs: {$ref: '#/components/schemas/Prefs'}
+        consent_at: {type: string, format: date-time, nullable: true, description: "Required consent to personal data processing"}
         consent_version: {type: string, nullable: true}
+        stats_consent_at: {type: string, format: date-time, nullable: true, description: "Voluntary consent to anonymous Chamber statistics"}
+        business: {allOf: [{$ref: '#/components/schemas/Business'}], nullable: true}
         created_at: {type: string, format: date-time}
     Source: {type: object, properties: {title: {type: string}, url: {type: string}}}
     EnvelopeBase:
@@ -384,6 +633,214 @@ components:
         fixed_costs_monthly: {type: number}
         employees: {type: integer}
         avg_salary: {type: number}
+    Money: {type: integer, format: int64, description: "Whole so'm"}
+    OpKind:
+      type: string
+      enum: [sale, buy, exp, sup, nas, repaid, fix, opening]
+      description: "sale; buy = purchase of goods; exp = other expense; sup = payment to a supplier (reduces the supplier obligation); nas = sale on credit; repaid = debtor paid back; fix = balance correction (signed difference); opening = starting balance"
+    Method: {type: string, enum: [naqd, karta, none], description: "naqd = cash, karta = card; none for nas"}
+    Sector: {type: string, enum: [dried_fruit, food, clothes, services, other]}
+    Market: {type: string, enum: [chorsu, oloy, parkent, quyliq, other]}
+    BizStatus: {type: string, enum: [yatt, oob, mchj, none]}
+    Regime: {type: string, enum: [turnover, vat6, vat12]}
+    Business:
+      type: object
+      required: [trade, sector, market, status, regime]
+      properties:
+        trade: {type: string, maxLength: 200, example: "quruq meva"}
+        sector: {$ref: '#/components/schemas/Sector'}
+        market: {$ref: '#/components/schemas/Market'}
+        status: {$ref: '#/components/schemas/BizStatus'}
+        regime: {$ref: '#/components/schemas/Regime'}
+        reserve: {$ref: '#/components/schemas/Money'}
+    Prefs:
+      type: object
+      properties:
+        big_text: {type: boolean}
+        voice_answers: {type: boolean}
+        voice_speed: {type: number, minimum: 0.5, maximum: 2}
+    Op:
+      type: object
+      required: [id, kind, amount, method, occurred_at]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {$ref: '#/components/schemas/OpKind'}
+        amount: {type: integer, format: int64, description: "Positive so'm; signed difference for fix"}
+        method: {$ref: '#/components/schemas/Method'}
+        label: {type: string}
+        counterparty_id: {type: string, format: uuid, nullable: true}
+        counterparty: {type: string, nullable: true}
+        fiscal: {type: boolean, description: "Receipt / QR / terminal — counted as recorded turnover"}
+        source: {type: string, enum: [text, voice, photo, manual, seed]}
+        items: {type: array, items: {type: object, properties: {name: {type: string}, qty: {type: number}, price: {$ref: '#/components/schemas/Money'}}}}
+        occurred_at: {type: string, format: date-time}
+    OpInput:
+      type: object
+      required: [kind, amount]
+      properties:
+        kind: {$ref: '#/components/schemas/OpKind'}
+        amount: {type: integer, format: int64, description: "For fix: the actual balance of `method` now (the server stores the difference)"}
+        method: {$ref: '#/components/schemas/Method'}
+        label: {type: string, maxLength: 200}
+        counterparty: {type: string, maxLength: 100, description: "Customer for nas/repaid, supplier for sup/buy"}
+        fiscal: {type: boolean}
+        source: {type: string, enum: [text, voice, photo, manual]}
+        raw_text: {type: string, maxLength: 500}
+        items: {type: array, items: {type: object, properties: {name: {type: string}, qty: {type: number}, price: {$ref: '#/components/schemas/Money'}}}}
+        occurred_at: {type: string, format: date-time}
+    FreeChange:
+      type: object
+      properties:
+        free_before: {$ref: '#/components/schemas/Money'}
+        free_after: {$ref: '#/components/schemas/Money'}
+    OpResult:
+      allOf:
+        - $ref: '#/components/schemas/FreeChange'
+        - type: object
+          properties: {op: {$ref: '#/components/schemas/Op'}}
+    View:
+      type: object
+      properties:
+        cash: {$ref: '#/components/schemas/Money'}
+        naqd: {$ref: '#/components/schemas/Money'}
+        karta: {$ref: '#/components/schemas/Money'}
+        tax: {$ref: '#/components/schemas/Money'}
+        obligations: {$ref: '#/components/schemas/Money'}
+        reserve: {$ref: '#/components/schemas/Money'}
+        free: {$ref: '#/components/schemas/Money'}
+        profit: {$ref: '#/components/schemas/Money'}
+        margin: {type: integer, description: "Percent of income"}
+        owed_to_me: {$ref: '#/components/schemas/Money'}
+        debtor_count: {type: integer}
+        profit_3m: {$ref: '#/components/schemas/Money'}
+    Upcoming:
+      type: object
+      properties:
+        kind: {type: string, enum: [rent, supplier, loan, other, tax]}
+        label: {type: string}
+        amount: {$ref: '#/components/schemas/Money'}
+        due_date: {type: string, format: date}
+        days_left: {type: integer}
+    Attention:
+      type: object
+      description: The frontend renders text by code and params in its own language
+      properties:
+        code: {type: string, enum: [debtor_overdue, tax_due, free_negative, free_low, payment_soon]}
+        severity: {type: string, enum: [info, warn, alert]}
+        params: {type: object, additionalProperties: true}
+    MonthSummary:
+      type: object
+      properties:
+        month: {type: string, example: "2026-11"}
+        income: {$ref: '#/components/schemas/Money'}
+        buy: {$ref: '#/components/schemas/Money'}
+        exp: {$ref: '#/components/schemas/Money'}
+        profit: {$ref: '#/components/schemas/Money'}
+        margin: {type: integer}
+        prev_income: {$ref: '#/components/schemas/Money'}
+        prev_profit: {$ref: '#/components/schemas/Money'}
+        partial: {type: boolean, description: "The month is not over yet"}
+    Today:
+      type: object
+      properties:
+        view: {$ref: '#/components/schemas/View'}
+        upcoming: {type: array, items: {$ref: '#/components/schemas/Upcoming'}}
+        attention: {type: array, items: {$ref: '#/components/schemas/Attention'}}
+        forecast: {type: array, items: {type: object, properties: {date: {type: string, format: date}, balance: {$ref: '#/components/schemas/Money'}}}}
+        month: {$ref: '#/components/schemas/MonthSummary'}
+        as_of: {type: string, format: date-time}
+    Intent:
+      type: object
+      required: [type, confirm]
+      properties:
+        type: {type: string, enum: [op, fix, rent, question, report, need_amount, need_kind, unknown]}
+        draft: {$ref: '#/components/schemas/OpInput'}
+        rent: {type: object, properties: {amount: {$ref: '#/components/schemas/Money'}, due_day: {type: integer}}}
+        topic: {type: string, description: "For question: loan, tax, profit, debtors, spend, plan, …"}
+        missing: {type: string, enum: [amount, kind], nullable: true}
+        lang: {$ref: '#/components/schemas/Lang'}
+        confirm: {type: boolean, description: "true when the amount is ≥ 1 000 000 000 — ask the user to confirm"}
+    Debtor:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        phone: {type: string, nullable: true}
+        owed: {$ref: '#/components/schemas/Money'}
+        days: {type: integer, description: "Days since the oldest unpaid nasiya (FIFO)"}
+    Obligation:
+      allOf:
+        - type: object
+          properties: {id: {type: string, format: uuid}, next_due: {type: string, format: date}}
+        - $ref: '#/components/schemas/ObligationInput'
+    ObligationInput:
+      type: object
+      required: [kind, amount]
+      properties:
+        kind: {type: string, enum: [rent, supplier, loan, other]}
+        label: {type: string, maxLength: 200}
+        amount: {$ref: '#/components/schemas/Money'}
+        due_day: {type: integer, minimum: 1, maximum: 31, description: "Monthly payments"}
+        due_date: {type: string, format: date, description: "One-off payments"}
+        recurring: {type: boolean}
+        counterparty: {type: string, description: "Supplier name"}
+    Reply:
+      type: object
+      required: [text, actions, work, sug, fallback, topic, chat_id]
+      properties:
+        text: {type: string, description: "Short answer; **bold** allowed"}
+        card:
+          type: object
+          nullable: true
+          properties:
+            title: {type: string}
+            value: {type: string}
+            rows: {type: array, items: {type: array, items: {type: string}, minItems: 2, maxItems: 2}}
+        actions:
+          type: array
+          items:
+            type: object
+            properties:
+              label: {type: string}
+              href: {type: string, description: "Path without language prefix, server allowlist"}
+              cx: {type: string}
+              run: {type: string}
+              primary: {type: boolean}
+        ask: {type: string, nullable: true, description: "One follow-up question"}
+        work: {type: array, description: "How it was computed: [verified, description]", items: {type: array, items: {oneOf: [{type: boolean}, {type: string}]}}}
+        sug: {type: array, items: {type: string}, description: "Suggested follow-ups"}
+        fallback: {type: boolean, description: "Template answer (LLM unavailable, slow or unverified)"}
+        topic: {type: string}
+        pending_op: {allOf: [{$ref: '#/components/schemas/OpInput'}], nullable: true}
+        chat_id: {type: string, format: uuid}
+    PalataGroup:
+      type: object
+      properties:
+        key: {type: string}
+        n: {type: integer}
+        unrecorded_pct: {type: integer}
+        official_pct: {type: integer}
+        median_turnover: {$ref: '#/components/schemas/Money'}
+    PalataReport:
+      type: object
+      properties:
+        window: {type: integer}
+        period_end: {type: string, format: date}
+        synthetic: {type: boolean, description: "true when demo (seed) data is included"}
+        kpi:
+          type: object
+          properties:
+            n: {type: integer}
+            unrecorded_pct: {type: integer}
+            unrecorded_ci_pp: {type: integer, description: "± percentage points (bootstrap)"}
+            official_pct: {type: integer}
+            switched_to_official: {type: integer}
+            median_turnover: {$ref: '#/components/schemas/Money'}
+        trend: {type: array, items: {type: object, properties: {month: {type: string}, unrecorded_pct: {type: integer}, n: {type: integer}}}}
+        sectors: {type: array, items: {$ref: '#/components/schemas/PalataGroup'}}
+        markets: {type: array, items: {$ref: '#/components/schemas/PalataGroup'}}
+        survey: {type: object, properties: {n: {type: integer}, answers: {type: array, items: {type: object, properties: {answer: {type: string}, pct: {type: integer}}}}}}
+        official: {type: object, properties: {value_pct: {type: number}, services_pct: {type: number}, period: {type: string}, source: {type: string}, note: {type: string}}}
     PhotoResult:
       type: object
       properties:

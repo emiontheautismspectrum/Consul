@@ -106,6 +106,20 @@ func run() error {
 	visionH.Register(v1, authH.RequireAuth)
 	api.Register(v1)
 
+	// Contract-first stubs: in openapi.yaml, not implemented yet (501 not_implemented).
+	// Each work package removes its routes from this list.
+	for _, route := range []string{
+		"POST /auth/otp/send", "POST /auth/otp/verify", "POST /auth/demo",
+		"PUT /me/business", "POST /me/consent/stats", "DELETE /me/consent/stats",
+		"GET /ledger/today", "POST /ops/parse", "GET /ops", "POST /ops", "DELETE /ops/{id}",
+		"GET /debtors", "POST /debtors/{id}/repaid", "GET /debtors/{id}/reminder",
+		"GET /obligations", "POST /obligations", "PATCH /obligations/{id}", "DELETE /obligations/{id}",
+		"POST /consul/ask", "POST /voice/stt", "POST /voice/tts",
+		"GET /palata/report", "GET /palata/report.csv",
+	} {
+		v1.HandleFunc(route, httpx.NotImplemented)
+	}
+
 	v1.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})

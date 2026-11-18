@@ -10,9 +10,11 @@ import (
 	"strconv"
 )
 
+// ErrorBody is the API error envelope. The frontend translates by code; message is for logs.
 type ErrorBody struct {
 	Error struct {
 		Code    string `json:"code"`
+		Field   string `json:"field,omitempty"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
@@ -31,6 +33,18 @@ func Error(w http.ResponseWriter, status int, code, msg string) {
 	var b ErrorBody
 	b.Error.Code, b.Error.Message = code, msg
 	JSON(w, status, b)
+}
+
+// FieldError reports a problem with one input field, e.g. code "amount_required", field "amount".
+func FieldError(w http.ResponseWriter, status int, code, field, msg string) {
+	var b ErrorBody
+	b.Error.Code, b.Error.Field, b.Error.Message = code, field, msg
+	JSON(w, status, b)
+}
+
+// NotImplemented answers contract stubs so the frontend can see the route in Swagger.
+func NotImplemented(w http.ResponseWriter, _ *http.Request) {
+	Error(w, http.StatusNotImplemented, "not_implemented", "this endpoint is in the contract but not implemented yet")
 }
 
 func InternalError(w http.ResponseWriter, r *http.Request, err error) {
