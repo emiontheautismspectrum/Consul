@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"finadvisor/internal/infrastructure/llm"
 	"finadvisor/internal/infrastructure/ratelimit"
 	"finadvisor/internal/ledger"
+	"finadvisor/internal/palata"
 	"finadvisor/internal/speech"
 	"finadvisor/internal/user"
 	"finadvisor/internal/vision"
@@ -40,13 +42,19 @@ func main() {
 		os.Exit(0)
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	// `api demo-reset` restores the demo account to the reference ledger (make demo-reset).
-	if len(os.Args) > 1 && os.Args[1] == "demo-reset" {
-		if err := demoReset(); err != nil {
-			slog.Error("demo-reset", "err", err)
-			os.Exit(1)
+	// Admin subcommands (run inside the api container, see Makefile):
+	//   demo-reset      restore the demo account to the reference ledger
+	//   palata-seed     replace the synthetic Chamber population (812 entrepreneurs) and refresh
+	//   palata-refresh  recompute the Chamber snapshots now
+	if len(os.Args) > 1 {
+		cmds := map[string]func() error{"demo-reset": demoReset, "palata-seed": palataSeed, "palata-refresh": palataRefresh}
+		if cmd, ok := cmds[os.Args[1]]; ok {
+			if err := cmd(); err != nil {
+				slog.Error(os.Args[1], "err", err)
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
@@ -158,16 +166,11 @@ func run() error {
 	advisorH.Register(v1, authH.RequireAuth)
 	visionH.Register(v1, authH.RequireAuth)
 	consulH.Register(v1, authH.RequireAuth)
+	palataRepo := palata.NewRepo(database)
+	palata.NewHandler(palataRepo).Register(v1) // public, aggregates only
+	go palataScheduler(ctx, palataRepo)
 	speechH.Register(v1, authH.RequireAuth)
 	api.Register(v1)
-
-	// Contract-first stubs: in openapi.yaml, not implemented yet (501 not_implemented).
-	// Each work package removes its routes from this list.
-	for _, route := range []string{
-		"GET /palata/report", "GET /palata/report.csv",
-	} {
-		v1.HandleFunc(route, httpx.NotImplemented)
-	}
 
 	v1.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -277,4 +280,70 @@ func demoReset() error {
 	}
 	slog.Info("demo account reset", "user_id", id)
 	return nil
+}
+
+// palataScheduler refreshes the Chamber snapshots at startup and every night at 03:00
+// Asia/Tashkent. Failures are logged; the report keeps serving the previous snapshot.
+func palataScheduler(ctx context.Context, repo *palata.Repo) {
+	tashkent := time.FixedZone("Asia/Tashkent", 5*60*60)
+	refresh := func() {
+		c, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		if err := repo.Refresh(c, time.Now()); err != nil {
+			slog.Error("palata refresh", "err", err)
+		}
+	}
+	refresh()
+	for {
+		now := time.Now().In(tashkent)
+		next := time.Date(now.Year(), now.Month(), now.Day(), 3, 0, 0, 0, tashkent)
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 1)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Until(next)):
+			refresh()
+		}
+	}
+}
+
+func adminDB() (*sql.DB, func(), error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx := context.Background()
+	if err := db.Migrate(ctx, cfg.MigrateURL, migrations.FS); err != nil {
+		return nil, nil, err
+	}
+	database, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	return database, func() { database.Close() }, nil
+}
+
+func palataSeed() error {
+	database, done, err := adminDB()
+	if err != nil {
+		return err
+	}
+	defer done()
+	ctx := context.Background()
+	if err := palata.Seed(ctx, database, palata.DemoSeed, time.Now()); err != nil {
+		return err
+	}
+	slog.Info("palata: synthetic population seeded", "users", palata.DemoSeed.Users)
+	return palata.NewRepo(database).Refresh(ctx, time.Now())
+}
+
+func palataRefresh() error {
+	database, done, err := adminDB()
+	if err != nil {
+		return err
+	}
+	defer done()
+	return palata.NewRepo(database).Refresh(context.Background(), time.Now())
 }

@@ -1,0 +1,4 @@
+{
+  "note": "ASSUMPTION: share of each sector in Tashkent bazaar trade, used to weight the city estimate. Confirm the source with the Chamber of Commerce mentor.",
+  "sectors": {"food": 0.35, "clothes": 0.25, "dried_fruit": 0.15, "services": 0.15, "other": 0.10}
+}

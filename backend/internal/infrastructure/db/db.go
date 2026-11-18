@@ -6,11 +6,13 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 )
 
 // Open connects through PgBouncer. Transaction pooling breaks server-side prepared
@@ -30,7 +32,9 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Migrate applies embedded migrations over a direct (non-pooled) connection.
+// Migrate applies embedded migrations over a direct (non-pooled) connection. A PostgreSQL
+// advisory session lock serializes concurrent runs (several API instances starting at once,
+// parallel test packages): one applies the migrations, the others wait and find nothing to do.
 func Migrate(ctx context.Context, dsn string, migrations fs.FS) error {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -40,11 +44,19 @@ func Migrate(ctx context.Context, dsn string, migrations fs.FS) error {
 	if err := ping(ctx, db); err != nil {
 		return err
 	}
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("postgres"); err != nil {
+	locker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(2, 60)) // up to 2 min
+	if err != nil {
 		return err
 	}
-	return goose.UpContext(ctx, db, ".")
+	p, err := goose.NewProvider(goose.DialectPostgres, db, migrations, goose.WithSessionLocker(locker))
+	if err != nil {
+		return err
+	}
+	results, err := p.Up(ctx)
+	for _, r := range results {
+		slog.Info("migration applied", "version", r.Source.Version, "duration_ms", r.Duration.Milliseconds())
+	}
+	return err
 }
 
 func ping(ctx context.Context, db *sql.DB) error {

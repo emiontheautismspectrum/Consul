@@ -42,6 +42,13 @@ FIX=$(dirname "$0")/fixtures
 expect_upload "photo: non-image → 415" 415 -X POST "$URL/api/v1/photo" -F "file=@$0;type=image/png"
 expect "stats" 200 "$URL/api/v1/me/stats"
 out | grep -q '"large_loans_calculated":1' && pass "stats: 1 large loan" || fail "stats" "$(out)"
+# Chamber report: public, aggregates only. A fresh database has no snapshot yet (404 no_report).
+code=$(curl -sk -o /tmp/smoke_body.$$ -w '%{http_code}' "$URL/api/v1/palata/report?window=30" || true)
+case $code in
+  200) grep -q '"kpi"' /tmp/smoke_body.$$ && pass "palata report (200)" || fail "palata body" "$(out)" ;;
+  404) grep -q no_report /tmp/smoke_body.$$ && pass "palata report not computed yet (404 no_report)" || fail "palata 404" "$(out)" ;;
+  *) fail "palata report: $code" "$(out)" ;;
+esac
 
 if [ "${SKIP_AI:-0}" != 1 ]; then
   code=$($C -o /tmp/smoke_body.$$ -w '%{http_code}' --max-time 300 -X POST "$URL/api/v1/advisor/generate" -d '{

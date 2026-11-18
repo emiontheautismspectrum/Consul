@@ -6,7 +6,7 @@ SSH           = ssh $(DEPLOY_USER)@$(DEPLOY_HOST)
 -include .env
 export
 
-.PHONY: up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host demo-reset demo-reset-vps
+.PHONY: up down logs ps test test-v lint env certs smoke psql publish deploy vps-logs vps-ps vps-host demo-reset demo-reset-vps palata-seed palata-seed-vps palata-refresh palata-refresh-vps
 
 ## Local: one command to run everything (creates .env and a self-signed cert if missing)
 up: env certs
@@ -46,6 +46,19 @@ demo-reset:
 
 demo-reset-vps:
 	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api demo-reset'
+
+## Chamber report: synthetic population (812, flagged synthetic) and recomputation
+palata-seed:
+	$(COMPOSE) exec -T api /api palata-seed
+
+palata-seed-vps:
+	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api palata-seed'
+
+palata-refresh:
+	$(COMPOSE) exec -T api /api palata-refresh
+
+palata-refresh-vps:
+	$(SSH) 'cd $(DEPLOY_PATH) && docker compose exec -T api /api palata-refresh'
 
 psql:
 	$(COMPOSE) exec postgres psql -U $(POSTGRES_USER) $(POSTGRES_DB)

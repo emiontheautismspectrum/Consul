@@ -464,6 +464,8 @@ paths:
       parameters: [{name: window, in: query, schema: {type: integer, enum: [30, 90], default: 30}}]
       responses:
         '200': {description: Report, content: {application/json: {schema: {$ref: '#/components/schemas/PalataReport'}}}}
+        '400': {description: window_invalid, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        '404': {description: "no_report — not computed yet (fewer than 5 consenting entrepreneurs)", content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
   /palata/report.csv:
     get:
       tags: [palata]
