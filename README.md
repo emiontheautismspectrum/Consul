@@ -1,6 +1,25 @@
-# Consul — an AI money assistant for small businesses in Uzbekistan
+<div align="center">
 
-**English** · [Русский](README.ru.md)
+<img src="docs/media/logo.svg" width="96" alt="Consul logo">
+
+# Consul
+
+**AI money assistant for small businesses in Uzbekistan**
+
+Keeps the books from a voice note or a receipt photo, shows how much you can safely spend today<br>and explains every number — in Uzbek and Russian.
+
+[![ci](https://github.com/emiontheautismspectrum/Consul/actions/workflows/ci.yml/badge.svg)](https://github.com/emiontheautismspectrum/Consul/actions/workflows/ci.yml)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+![UZ · RU](https://img.shields.io/badge/UZ%20%C2%B7%20RU-A3213A)
+
+**English** · [Русский](README.ru.md) · [Pitch deck (PDF)](Consul-Pitch-Day.pdf) · [Quick start](#quick-start)
+
+<img src="docs/media/hero.jpg" alt="Consul on desktop and phone" width="100%">
+
+</div>
 
 Consul is a pocket accountant for small traders. The owner writes or says *"sold 1 200 000 cash"*, and Consul keeps the books, answers **"how much can I spend today?"**, calculates taxes and loans, reads photos of receipts and invoices, compares prices with the market, and explains it all in Uzbek or Russian.
 
@@ -10,7 +29,7 @@ Built for the Umummilliy AI Hackathon (Tashkent, 17–19 Nov 2026), Chamber of C
 
 > ⚠️ Informational only — **not tax, legal or credit advice.** Tax rules come from the Tax Code ([lex.uz](https://lex.uz/docs/4674902), [soliq.uz](https://soliq.uz)) and must be checked against the current edition.
 
-📊 [Pitch Day deck (PDF, Russian)](Consul-Pitch-Day.pdf)
+**Contents:** [What it does](#what-it-does) · [How it works](#how-it-works) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Quick start](#quick-start) · [API](#api) · [Assistant quality](#assistant-quality) · [Deploy](#deploy-vps) · [Configuration](#configuration) · [Security](#security-and-data) · [Limitations](#known-limitations) · [Layout](#repository-layout) · [Team](#team)
 
 ## What it does
 
@@ -27,6 +46,39 @@ Built for the Umummilliy AI Hackathon (Tashkent, 17–19 Nov 2026), Chamber of C
 | **Market prices** | Official weekly averages from [narx.stat.uz](https://narx.stat.uz), anonymous bazaar medians from users' receipts (only when ≥ 5 different users bought the product), and the user's own price. |
 | **Chamber report** | Aggregates for the Chamber of Commerce: only users who consented, groups of fewer than 5 are never returned, bootstrap confidence intervals. The demo population is synthetic and flagged as such. |
 | **Privacy** | Consent screens, data export (CSV), account deletion, PII masking before any LLM call. |
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Voice · text · receipt photo"] --> B["Text parser / vision model"]
+    B --> C["Draft operation<br/>user confirms"]
+    C --> D[("Ledger<br/>PostgreSQL")]
+    D --> E["Tools and calculators<br/>Go, tested"]
+    Q["Question"] --> F["LLM agent"]
+    F -- calls --> E
+    E -- numbers --> F
+    F --> G{"Every number matches<br/>a tool result?"}
+    G -- yes --> H["Answer with sources"]
+    G -- no --> I["Template answer"]
+```
+
+Operations are parsed without an LLM; the model is called only to answer questions, and it never computes money itself.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/receipt.jpg" alt="Receipt photo → draft operation"><br><sub>Receipt photo → draft operation</sub></td>
+    <td width="50%"><img src="docs/media/assistant.jpg" alt="Consul chat with saved conversations"><br><sub>Consul chat with saved conversations</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/media/calculators.jpg" alt="Calculators: break-even, tax, price"><br><sub>Calculators: break-even, tax, price</sub></td>
+    <td width="50%"><img src="docs/media/loan.jpg" alt="Loan: safe amount and step-by-step plan"><br><sub>Loan: safe amount and step-by-step plan</sub></td>
+  </tr>
+</table>
+
+<sub>Screens use the demo ledger; amounts are illustrative.</sub>
 
 ## Architecture
 
@@ -142,3 +194,12 @@ deploy/    nginx templates, VPS compose, host hardening (nftables, fail2ban), sc
 scripts/   smoke tests
 docker-compose.yml   local stack          Makefile   all commands
 ```
+
+## Team
+
+| Who | Role |
+|---|---|
+| Emil Kalashnikov | Project lead, product and design |
+| Iskander Ismailov, Ozodbek Khaitov | Backend (Go): API, security, database |
+| Arseniy Tarasov | Frontend (Next.js): web app and site in Uzbek and Russian |
+| Saimbek Ismatullaev | Business analysis, market research and pitch |
